@@ -1,0 +1,168 @@
+namespace: chat-app
+
+frontend:
+  replicas: 1
+  image:
+    repository: rahul6364/full-stack-chatapp-frontend
+    tag: af8545f
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 80
+  env:
+    nodeEnv: production
+    backendUrl: http://backend:5001
+  probes:
+    readiness:
+      path: /
+      port: 80
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      failureThreshold: 3
+    liveness:
+      path: /
+      port: 80
+      initialDelaySeconds: 20
+      periodSeconds: 15
+      failureThreshold: 3
+  resources:
+    limits:
+      memory: 256Mi
+      cpu: 200m
+    requests:
+      memory: 128Mi
+      cpu: 100m
+
+backend:
+  replicas: 1
+  image:
+    repository: rahul6364/full-stack-chatapp-backend
+    tag: af8545f
+    pullPolicy: Always
+  service:
+    type: ClusterIP
+    port: 5001
+    targetPort: 5001
+  env:
+    mongodbUri: mongodb://root:admin@mongodb:27017/chatApp?authSource=admin
+    port: "5001"
+    nodeEnv: production
+  secretRef:
+    name: backend-secrets
+    keys:
+      jwtSecret: jwt-secret
+      cloudinaryCloudName: cloudinary-cloud-name
+      cloudinaryApiKey: cloudinary-api-key
+      cloudinaryApiSecret: cloudinary-api-secret
+  probes:
+    readiness:
+      path: /health
+      port: 5001
+      initialDelaySeconds: 20
+      periodSeconds: 10
+      failureThreshold: 3
+    liveness:
+      path: /health
+      port: 5001
+      initialDelaySeconds: 60
+      periodSeconds: 20
+      failureThreshold: 5
+  resources:
+    limits:
+      memory: 512Mi
+      cpu: 500m
+    requests:
+      memory: 256Mi
+      cpu: 250m
+
+mongodb:
+  replicas: 1
+  image:
+    repository: iemafzal/mongodb
+    tag: v1
+  service:
+    port: 27017
+    targetPort: 27017
+    annotations:
+      argocd.argoproj.io/sync-options: Replace=true
+  auth:
+    rootUsername: root
+    rootPassword: admin
+  persistence:
+    size: 1Gi
+    accessModes:
+      - ReadWriteOnce
+  probes:
+    startup:
+      port: 27017
+      initialDelaySeconds: 10
+      periodSeconds: 5
+      failureThreshold: 40
+    readiness:
+      port: 27017
+      initialDelaySeconds: 20
+      periodSeconds: 10
+    liveness:
+      port: 27017
+      initialDelaySeconds: 60
+      periodSeconds: 15
+
+configmap:
+  nginxConf: |
+    server {
+        listen 80;
+        server_name localhost;
+
+        root /usr/share/nginx/html;
+        index index.html;
+
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+
+        location /api/ {
+            proxy_pass http://backend.chat-app.svc.cluster.local:5001/api/;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host $host;
+            proxy_cache_bypass $http_upgrade;
+        }
+
+        location /socket.io/ {
+            proxy_pass http://backend.chat-app.svc.cluster.local:5001/socket.io/;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "Upgrade";
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_cache_bypass $http_upgrade;
+        }
+    }
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+  host: chat-app.com
+  paths:
+    api: /api
+    socket: /socket.io
+    root: /
+
+sealedSecret:
+  enabled: true
+  name: backend-secrets
+  encryptedData:
+    cloudinaryApiKey: AgAOYNlKvpyhC/7HkKpIG8fH0CLt09QOoUVXp4m5qbUke8oXjGymX4O2cKcXoe6+nNhdixZeGmNO5QNKc4fac2xggveT8vmzSizTUx4fQHHCmOsstqh9Yk17YdTilemLE5u9FmmWPOTK0qQ+Z5pHFoN+RLU2qxkRanVb0UkcbAMxqkp/3KIq3siFBSU/BohHBsKiug2IjnloUNgaF5OabqrL+rCwnsqeasGuGkQ1c1YkJXpf58WjUx/0eHiW/K8oK+lL39IHQlmtTsXUZKdso1VfWNQy73fdZXPpU9ra6tdC9wUAhyQirlPqnrasppl+qwPEFOk+ZkY4BwSL8g62F3TPRfnC/Aa8eV8PqiTBevoSeV1V6ZEimRtllsCUwRpAx6xIjMCBJqvC3WEgdxskNJSCd+5eMGB6BPddxVPqjrlzQQnoeR8yRvGcMT6Cvk14yh25yudi+/g6044v4ESlB+UJgRCjBrn3Ysr/k82jnGplHaMBii+WLblLfzShAYGBQ3lwaWfVFhpWIhEcXFyD0Cb6JeqZwdjdKoFrzY1/Y2tpWPTw9xI0jzVn8Lye8KHDC2dbjbg5Hw8jZE85HvEsV8sD9edjL+iK1WNvG5wwrYn4M78F9f+uW6FQTvt6/2sM2St5kD26sJyiUOIAl9S6ye/l5kZaradJe+G8Lt5NJbJuJRwRYvvfOnmPa3oR+c4LvsYHsFiCHEcqKjtPRtuNagI=
+    cloudinaryApiSecret: AgBkWAGP6Dya1UwPZiISTp3Fd3+UCHezkZ0kDgP71CfbkR3oFLVuD6udo+3ex0tdRPhJ/zRui92UHR6McVI5K1RiREHVm5z9vVVJ+cSgWP5aygguPVSPZ6sRZiGELOY5g9yUz3NOBRTRLE6pcE7DcUcMkgz2sDsCJR3q3bvJ8xjTTiOwrlT5NObIzo2386hnOu+ymo894Uv3EA14w1vHVxuiIZY6Kp0649xQTqDRv9ewA9Wi1MIze4jdn7OnkPKqo2mk8YW1GnXrTVfsdVJhLOOT+NRuWk8JTQjaSYxjSs7C6r47VnI9z+ymz+mggwN37BDkY6qZuP+J70BAcWZlLIjRJxTMkI3CN0DRqLKND7BWfUAfvOodStTjNSWUNycH9D9fzqXuzWDVdg2UnYkdch4pKq1ALbBWfUv3yrSl6i1mK2l2HSAZ5vawJ+uc65fcGlhuJnIs7x3XPmRH9nBZ/ovjN0nQ3QZmzMv/5VWQbJgKOZSod0FFzeuxbdFE9kDDEW9Cag8mVH/s3bqsHCrzge6WGfjeX6cOQNPUQrqrKN4rm02oVvx5+snMALdVKh29VgfEdq7YBM8GJWnAQFXo225qLuwBmYTpXK4XXtNjOwPqdo59Y56Pv6OnKy8FfyBZkK3gtXDYnZQAewe8m+vbY6RN6R29yOzwRBzQi0dJmKukS5t7qZaDJgvU++Bs/i2WByp9SxmDFBanBncP60uA2rajMAbOC9lF3OHOCGg=
+    cloudinaryCloudName: AgAikXhFrUoRavHu92rJtybkIrrw2aiGlqhg6vDfqk8N1PlopNNIQd2VFkfFVW67CKdsbSp+q7DE7w7Ctr9S/Hpo1MbEUhrDAhFSoM/vBnmakct8LvT9uIC+kNXz56Ihd0S3LDqXLXKiUIEMJQ6fmGXiAhtw34pNW+iT8E3UJsP2Z0V2CXRwP1i++JHBzHzNnvXyeLJmxxiwkYBmQKMpQDr3d/FyeUVAzdlPsytAIa3l1XM6meet26aL4nOWQpdPKV/On3aF7df3/bLM4cn9z8eC2KBm3WCZzmajFlta9zZ7x8ncMHnjtWG56bRHL0XC4c9fpDxaZ9V23qo9ZvQ5a2hhnKAuxdsy6wTRTBgZXYL+y4ozkiKXTIxIn+obDwcgQupxT28HBnIzNppr/MtHM1ycxOH8digezBdtzvmaL1QyqNoToLTbldU4d+2A+ws+TPfNujjPOvaeHzvsk+gdJgpSgjW1qqP8fe7u68/eJAiUJp7E2uS14FrEi7bjnJRaxpcMxHt1qQBba+GQQzRuf+vt4QFpSOgc52HvRrCcFx9vT4NWWXUkHG3GHFLm2S3ruzPdR1CWXAXqN1mj8KxfYDcccSmOHi1N6bxKQZCJQZD2d083iAkV7X3eT96qwnur8c5iUVYSTs5b56CnRQmveiseJf4NpeMRowXbEDWtkaDMbdQNcU2DxIwhIDRnNWqdT23UPxCMprdzneo=
+    jwtSecret: AgCQFnyovao1sU4vwSK5gmp/UATDa+0bRDGc809bE1hjftHHtaM2A3EdKENH3yWvysahi+AyLng1ZLEowjs9rmp/97Rq7GVnNrsWwJbvoBcVhLwO46kzUqIawh9nXrdDKbmxKVTGMXAgzBODOx7r+RfqSEKkWk6VQHLhbQy63WNjIzoL72z0VDy2JSUAfd1I/+Nuwr+gtNjkJyx/8KFLRJ1lvwPfPynW339n7Ynxq4CvwasqOGS2YT7HLolJGgh/6CJ/oEhockyUtVmLjb2IAEJLDH59qB7PF+/h2mYxEMiLBoLQCT+q+rNP2BCc3p475A5EuULzG1iej9io7H1Lk6rX4kHfucfhp0/MO11ngzWxtH8hVTkpzV72NZAy0HbYHikln7+Q7uP3CqUu8t0tnJPOewdRQsq7UrIaqkA6o9SeYGshmz6ep3NndNyLJjAE6cuJiAhsasl2td3ypy18p3TTgKpraV2VkZd82ryJpEkKAWTSol/v0+HTszKWhtv6Sd0TBaaksaad/i471Qa55xh737lBsgnFnXuR0PphRU3f5YeC7Db9k4QceEvUDDWVuXkqGmF5NjxgZ3abcGetvtA895iXm0ADelYiFsPHeAQZzDUea1fRO72avIYklLdsXd1h12fhP/fmRyEntLCGP2/+9Q7BQ78I+r836b6lbqT5S6vSywsp21yiK7RHF1G/Dxuj/I1J877Pb8YerFZvQqpcCZvGJLjUr1xHUqPRPKQRx9MYGZcJ2p1E4ThQdItEQ4NPQ23fcsxbM9CJQwNKAVRq

@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mongodb
+  namespace: {{ include "chat-app.namespace" . }}
+spec:
+  serviceName: mongodb
+  replicas: {{ .Values.mongodb.replicas }}
+  selector:
+    matchLabels:
+      app: mongodb
+  template:
+    metadata:
+      labels:
+        app: mongodb
+    spec:
+      containers:
+        - name: mongodb
+          image: {{ .Values.mongodb.image.repository }}:{{ .Values.mongodb.image.tag }}
+          ports:
+            - containerPort: {{ .Values.mongodb.service.targetPort }}
+          startupProbe:
+            tcpSocket:
+              port: {{ .Values.mongodb.probes.startup.port }}
+            initialDelaySeconds: {{ .Values.mongodb.probes.startup.initialDelaySeconds }}
+            periodSeconds: {{ .Values.mongodb.probes.startup.periodSeconds }}
+            failureThreshold: {{ .Values.mongodb.probes.startup.failureThreshold }}
+          readinessProbe:
+            tcpSocket:
+              port: {{ .Values.mongodb.probes.readiness.port }}
+            initialDelaySeconds: {{ .Values.mongodb.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.mongodb.probes.readiness.periodSeconds }}
+          livenessProbe:
+            tcpSocket:
+              port: {{ .Values.mongodb.probes.liveness.port }}
+            initialDelaySeconds: {{ .Values.mongodb.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.mongodb.probes.liveness.periodSeconds }}
+          env:
+            - name: MONGO_INITDB_ROOT_USERNAME
+              value: {{ .Values.mongodb.auth.rootUsername | quote }}
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              value: {{ .Values.mongodb.auth.rootPassword | quote }}
+          volumeMounts:
+            - name: mongo-data
+              mountPath: /data/db
+  volumeClaimTemplates:
+    - metadata:
+        name: mongo-data
+      spec:
+        accessModes:
+{{- range .Values.mongodb.persistence.accessModes }}
+          - {{ . | quote }}
+{{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.mongodb.persistence.size }}
