@@ -82,6 +82,7 @@ cd cloud-native-chat-platform
 * **Local K8s Auth Fix**: Optimized cookie and CORS settings for plain HTTP access via `chat-app.com:8080`.
 * **Helm migration**: Kubernetes manifests moved to `helm/chat-app/`; ArgoCD deploys the Helm chart from `main`.
 * **Repository renamed**: Canonical repo is `cloud-native-chat-platform` (ArgoCD `repoURL` updated).
+* **Production hardening**: HPA, PodDisruptionBudgets, NetworkPolicies, and resource requests/limits on all workloads (via Helm values).
 
 ---
 
@@ -90,8 +91,8 @@ cd cloud-native-chat-platform
 * `frontend/` - React app + `frontend/Dockerfile`
 * `backend/` - API + socket server + auth
 * `helm/chat-app/` - Helm chart (primary deployment)
-  * `values.yaml` - image tags, ingress host, resources, sealed secret ciphertext
-  * `templates/` - rendered Kubernetes resources (deployments, services, ingress, etc.)
+  * `values.yaml` - image tags, ingress, resources, HPA, PDB, network policies, secrets
+  * `templates/` - deployments, HPA, PDB, NetworkPolicy, services, ingress, etc.
 * `k8s/` - legacy manifests and cluster utilities
   * `argocd.yml` - ArgoCD Application (points at `helm/chat-app`)
   * `pub-cert.pem` - kubeseal cluster cert for re-sealing secrets
@@ -242,6 +243,50 @@ Recommended way using the Helm chart in `helm/chat-app`.
 
 3. **Customize values (optional)**:
    Edit `helm/chat-app/values.yaml` for image tags, ingress host, and resource settings, then run the same `helm upgrade --install` command again.
+
+### Step 3b: HPA, PDB, and Network Policies
+
+The chart enables these by default in `helm/chat-app/values.yaml`:
+
+| Feature | Components | Purpose |
+|---------|------------|---------|
+| **Resource requests/limits** | frontend, backend, mongodb | Stable scheduling and CPU/memory caps |
+| **HPA** | frontend, backend | Scale 2–5 pods on CPU (~70% target) |
+| **PodDisruptionBudget** | frontend, backend, mongodb | Safer node drains / upgrades |
+| **NetworkPolicy** | frontend, backend, mongodb | Restrict traffic to expected paths only |
+
+**Install metrics-server** (required for HPA on Kind):
+
+```bash
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+kubectl patch deployment metrics-server -n kube-system --type='json' \
+  -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
+kubectl rollout status deployment/metrics-server -n kube-system --timeout=120s
+```
+
+**Verify after sync:**
+
+```bash
+kubectl get hpa,pdb,networkpolicy -n chat-app
+kubectl top pods -n chat-app
+```
+
+**Disable for local debugging** (in `values.yaml`):
+
+```yaml
+frontend:
+  autoscaling:
+    enabled: false
+  replicas: 1
+backend:
+  autoscaling:
+    enabled: false
+  replicas: 1
+networkPolicy:
+  enabled: false
+```
+
+> **Note:** Kind’s default CNI does not enforce NetworkPolicies. They still apply in production clusters (EKS, GKE, AKS with a policy-aware CNI). For local policy testing, use Kind with [Calico](https://docs.tigera.io/calico/latest/getting-started/kubernetes/kind) or another CNI that supports them.
 
 ---
 

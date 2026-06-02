@@ -43,6 +43,8 @@ spec:
           volumeMounts:
             - name: mongo-data
               mountPath: /data/db
+          resources:
+{{- toYaml .Values.mongodb.resources | nindent 12 }}
   volumeClaimTemplates:
     - metadata:
         name: mongo-data

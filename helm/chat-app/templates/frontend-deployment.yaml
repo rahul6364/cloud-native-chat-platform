@@ -4,7 +4,9 @@ metadata:
   name: frontend
   namespace: {{ include "chat-app.namespace" . }}
 spec:
+{{- if not .Values.frontend.autoscaling.enabled }}
   replicas: {{ .Values.frontend.replicas }}
+{{- end }}
   selector:
     matchLabels:
       app: frontend

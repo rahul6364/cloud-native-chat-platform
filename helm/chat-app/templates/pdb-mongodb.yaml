@@ -1,0 +1,12 @@
+{{- if .Values.mongodb.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: mongodb
+  namespace: {{ include "chat-app.namespace" . }}
+spec:
+  maxUnavailable: {{ .Values.mongodb.pdb.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "chat-app.labels.mongodb" . | nindent 6 }}
+{{- end }}

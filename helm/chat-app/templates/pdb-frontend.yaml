@@ -1,0 +1,12 @@
+{{- if .Values.frontend.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: frontend
+  namespace: {{ include "chat-app.namespace" . }}
+spec:
+  minAvailable: {{ .Values.frontend.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "chat-app.labels.frontend" . | nindent 6 }}
+{{- end }}
