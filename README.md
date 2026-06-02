@@ -77,15 +77,12 @@ This project provides a scalable and production-style chat application with:
 
 * `frontend/` - React app + `frontend/Dockerfile`
 * `backend/` - API + socket server + auth
-* `k8s/` - Kubernetes manifests
-  * `namespace.yaml` - creates `chat-app` namespace
-  * `mongodb-statefullset.yaml` - **MongoDB StatefulSet**
-  * `mongodb-service.yaml` - **Headless service** for stable MongoDB DNS
-  * `sealed-secrets.yaml` - **Encrypted secrets** managed by Bitnami Sealed Secrets
-  * `backend-deployment.yaml`, `backend-service.yaml`
-  * `frontend-deployment.yaml`, `frontend-service.yaml`
-  * `ingress.yaml` - host/path routing for app traffic
-  * `argocd.yml` - ArgoCD Application manifest
+* `helm/chat-app/` - Helm chart (primary deployment)
+  * `values.yaml` - image tags, ingress host, resources, sealed secret ciphertext
+  * `templates/` - rendered Kubernetes resources (deployments, services, ingress, etc.)
+* `k8s/` - legacy manifests and cluster utilities
+  * `argocd.yml` - ArgoCD Application (points at `helm/chat-app`)
+  * `pub-cert.pem` - kubeseal cluster cert for re-sealing secrets
 
 ---
 
@@ -214,36 +211,22 @@ Since Sealed Secrets are encrypted with a key unique to each cluster, the existi
 
 ---
 
-### Step 3: Option A - Manual Deployment
+### Step 3: Option A - Helm Deployment
 
-The traditional way using `kubectl`.
+Recommended way using the Helm chart in `helm/chat-app`.
 
-1. **Create Namespace**:
+1. **Install/Upgrade chart**:
    ```bash
-   kubectl apply -f k8s/namespace.yaml
+   helm upgrade --install chat-app ./helm/chat-app --create-namespace --namespace chat-app
    ```
 
-2. **Deploy Components (Order matters)**:
+2. **Render manifests (optional validation)**:
    ```bash
-   # Configs & Secrets
-   kubectl apply -f k8s/frontend-configmap.yaml -n chat-app
-   kubectl apply -f k8s/sealed-secrets.yaml -n chat-app
-
-   # Database (MongoDB StatefulSet)
-   kubectl apply -f k8s/mongodb-statefullset.yaml -n chat-app
-   kubectl apply -f k8s/mongodb-service.yaml -n chat-app
-
-   # Backend
-   kubectl apply -f k8s/backend-deployment.yaml -n chat-app
-   kubectl apply -f k8s/backend-service.yaml -n chat-app
-
-   # Frontend
-   kubectl apply -f k8s/frontend-deployment.yaml -n chat-app
-   kubectl apply -f k8s/frontend-service.yaml -n chat-app
-
-   # Ingress
-   kubectl apply -f k8s/ingress.yaml -n chat-app
+   helm template chat-app ./helm/chat-app --namespace chat-app
    ```
+
+3. **Customize values (optional)**:
+   Edit `helm/chat-app/values.yaml` for image tags, ingress host, and resource settings, then run the same `helm upgrade --install` command again.
 
 ---
 
@@ -276,7 +259,7 @@ The modern way. ArgoCD will monitor your repository and automatically sync chang
    ```bash
    kubectl apply -f k8s/argocd.yml
    ```
-   *ArgoCD will now pull your code from GitHub and deploy all resources in the `k8s/` folder automatically.*
+  *ArgoCD will now pull your code from GitHub and deploy the Helm chart from `helm/chat-app`.*
 
 ---
 
@@ -304,6 +287,29 @@ Since we use Ingress with host-based routing (`chat-app.com`), common for produc
 
 ---
 
+## 📊 Monitoring & Observability
+
+The application includes a full monitoring stack (Prometheus & Grafana) managed via ArgoCD.
+
+1. **Deploy Monitoring**:
+   The monitoring stack is defined in `k8s/monitoring-app.yml` and is automatically synced by ArgoCD into the `monitoring` namespace.
+
+2. **Access Grafana**:
+   ```bash
+   kubectl port-forward -n monitoring svc/monitoring-stack-grafana 3000:80
+   ```
+   - **URL**: `http://localhost:3000`
+   - **Login**: `admin`
+   - **Password**: `admin123` (configured in `k8s/monitoring-app.yml`)
+
+3. **Access Prometheus**:
+   ```bash
+   kubectl port-forward -n monitoring svc/monitoring-stack-kube-prom-prometheus 9090:9090
+   ```
+   - **URL**: `http://localhost:9090`
+
+---
+
 ## Validation Checklist
 
 - [ ] **Cluster Health**: `kubectl get nodes` (Ready)
@@ -311,6 +317,8 @@ Since we use Ingress with host-based routing (`chat-app.com`), common for produc
 - [ ] **Namespace**: `kubectl get pods -n chat-app` (All Running)
 - [ ] **Ingress**: `kubectl get ingress -n chat-app` (Hostname chat-app.com visible)
 - [ ] **Browser access** at `http://chat-app.com:8080/`.
+- [ ] **Monitoring**: `kubectl get pods -n monitoring` (All Running)
+- [ ] **Grafana Dashboard**: Accessible at `http://localhost:3000`.
 
 ---
 
@@ -340,8 +348,8 @@ This repository has a production-grade GitHub Actions pipeline in `.github/workf
 Code push to main
   → GitHub Actions CI
   → Build + scan + push Docker images (SHA tag)
-  → Update k8s/*-deployment.yaml with new SHA tag
-  → Commit + push manifest changes to main
+  → Update helm/chat-app/values.yaml with new SHA tag
+  → Commit + push Helm values change to main
   → ArgoCD detects diff → syncs to Kind cluster
   → Pods roll out with new image
 ```
