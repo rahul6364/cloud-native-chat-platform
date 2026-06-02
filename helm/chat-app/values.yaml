@@ -4,7 +4,7 @@ frontend:
   replicas: 1
   image:
     repository: rahul6364/full-stack-chatapp-frontend
-    tag: af8545f
+    tag: 2360aa0
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
@@ -38,7 +38,7 @@ backend:
   replicas: 1
   image:
     repository: rahul6364/full-stack-chatapp-backend
-    tag: af8545f
+    tag: 2360aa0
     pullPolicy: Always
   service:
     type: ClusterIP
