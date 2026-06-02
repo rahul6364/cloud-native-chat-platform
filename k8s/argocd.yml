@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/rahul6364/full-stack_chatApp.git
+    repoURL: https://github.com/rahul6364/cloud-native-chat-platform.git
     targetRevision: main
     path: helm/chat-app
     helm:

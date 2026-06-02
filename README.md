@@ -14,7 +14,7 @@ A full-stack real-time chat application built with React, Node.js/Express, Socke
 * [🚀 Kubernetes Deployment from Scratch](#-kubernetes-deployment-from-scratch)
     * [Step 1: Cluster Setup (Kind)](#step-1-cluster-setup-kind)
     * [Step 2: Core Infrastructure (Ingress & Secrets)](#step-2-core-infrastructure-ingress--secrets)
-    * [Step 3: Option A - Manual Deployment](#step-3-option-a---manual-deployment)
+    * [Step 3: Option A - Helm Deployment](#step-3-option-a---helm-deployment)
     * [Step 4: Option B - GitOps Deployment (ArgoCD)](#step-4-option-b---gitops-deployment-argocd)
 * [🌐 Accessing the Application](#-accessing-the-application)
 * [Validation Checklist](#validation-checklist)
@@ -50,7 +50,17 @@ This project provides a scalable and production-style chat application with:
 * **Web Server:** Nginx
 * **Authentication:** JWT + HTTP-only cookies
 * **GitOps / CD:** ArgoCD
+* **Packaging:** Helm
 * **Tunneling (demo):** Ngrok
+
+## Repository
+
+**GitHub:** [rahul6364/cloud-native-chat-platform](https://github.com/rahul6364/cloud-native-chat-platform)
+
+```bash
+git clone https://github.com/rahul6364/cloud-native-chat-platform.git
+cd cloud-native-chat-platform
+```
 
 ## Current Project Status
 
@@ -70,6 +80,8 @@ This project provides a scalable and production-style chat application with:
 * **Payload Support**: Increased request limits to **10MB** (Express + Nginx Ingress) for profile picture uploads.
 * **Infrastructure Optimization**: Cleaned up redundant PVCs and fixed ArgoCD health monitoring.
 * **Local K8s Auth Fix**: Optimized cookie and CORS settings for plain HTTP access via `chat-app.com:8080`.
+* **Helm migration**: Kubernetes manifests moved to `helm/chat-app/`; ArgoCD deploys the Helm chart from `main`.
+* **Repository renamed**: Canonical repo is `cloud-native-chat-platform` (ArgoCD `repoURL` updated).
 
 ---
 
@@ -103,8 +115,8 @@ NODE_ENV=production
 
 ### Step 1: Clone repository
 ```bash
-git clone https://github.com/rahul6364/full-stack_chatApp.git
-cd full-stack_chatApp
+git clone https://github.com/rahul6364/cloud-native-chat-platform.git
+cd cloud-native-chat-platform
 ```
 
 ### Step 2: Start app
@@ -175,7 +187,7 @@ helm install sealed-secrets sealed-secrets/sealed-secrets -n kube-system
 
 ### 🔐 Re-sealing Secrets for a New Cluster
 
-Since Sealed Secrets are encrypted with a key unique to each cluster, the existing `k8s/sealed-secrets.yaml` will NOT work on a fresh setup. Follow these steps to generate your own:
+Since Sealed Secrets are encrypted with a key unique to each cluster, the ciphertext in `helm/chat-app/values.yaml` (`sealedSecret.encryptedData`) will NOT work on a fresh cluster. Follow these steps to generate your own:
 
 1. **Install the `kubeseal` CLI**:
    ```bash
@@ -206,8 +218,11 @@ Since Sealed Secrets are encrypted with a key unique to each cluster, the existi
      --from-literal=jwt-secret="$JWT_SECRET" \
      --namespace chat-app \
      --dry-run=client -o json | \
-     kubeseal --format yaml --cert k8s/pub-cert.pem > k8s/sealed-secrets.yaml
+     kubeseal --format yaml --cert k8s/pub-cert.pem > /tmp/backend-sealed.yaml
    ```
+
+4. **Copy encrypted values into Helm**:
+   Open `/tmp/backend-sealed.yaml`, copy the `encryptedData` fields into `helm/chat-app/values.yaml` under `sealedSecret.encryptedData` (keys: `cloudinaryApiKey`, `cloudinaryApiSecret`, `cloudinaryCloudName`, `jwtSecret`), then commit and push.
 
 ---
 
@@ -255,11 +270,33 @@ The modern way. ArgoCD will monitor your repository and automatically sync chang
    ```
 
 4. **Connect the Application**:
-   You can apply the provided manifest directly to your cluster:
+   Apply the ArgoCD Application manifest (repo: `cloud-native-chat-platform`, branch: `main`, path: `helm/chat-app`):
    ```bash
    kubectl apply -f k8s/argocd.yml
    ```
-  *ArgoCD will now pull your code from GitHub and deploy the Helm chart from `helm/chat-app`.*
+
+5. **If the repo is private**, register credentials in ArgoCD once:
+   ```bash
+   argocd repo add https://github.com/rahul6364/cloud-native-chat-platform.git \
+     --username <github-username> --password <github-pat>
+   ```
+   Or add the repo in the ArgoCD UI under **Settings → Repositories**.
+
+6. **Refresh and sync** in the ArgoCD UI (or CLI):
+   ```bash
+   argocd app get chat-app
+   argocd app sync chat-app
+   ```
+
+*ArgoCD pulls from `https://github.com/rahul6364/cloud-native-chat-platform.git` and deploys the Helm chart at `helm/chat-app`.*
+
+### ArgoCD troubleshooting
+
+| Error | Fix |
+|-------|-----|
+| `unable to resolve 'helm-migration' to a commit SHA` | Branch was never pushed; use `targetRevision: main` in `k8s/argocd.yml` and re-apply. |
+| `repository not accessible` | Add GitHub PAT in ArgoCD if the repo is private. |
+| SealedSecret sync failed | Re-seal secrets for your cluster (see [Re-sealing Secrets](#-re-sealing-secrets-for-a-new-cluster)). |
 
 ---
 
@@ -325,10 +362,10 @@ The application includes a full monitoring stack (Prometheus & Grafana) managed 
 ## Issues Faced and Fixes
 
 ### 1) Ingress hostname mismatch
-* **Fix:** set host in `k8s/ingress.yaml` to `chat-app.com`, add `127.0.0.1 chat-app.com` in hosts file.
+* **Fix:** set host in `helm/chat-app/values.yaml` (`ingress.host`) to `chat-app.com`, add `127.0.0.1 chat-app.com` in hosts file.
 
 ### 2) Auth 401 on protected APIs after login
-* **Fix:** use `NODE_ENV=development` in backend deployment for local Kind HTTP testing (cookies `secure: false`).
+* **Fix:** set `backend.env.nodeEnv: development` in `helm/chat-app/values.yaml` for local Kind HTTP testing (cookies `secure: false`).
 
 ### 3) Empty JWT secret causing 500 errors
 * **Fix:** regenerate and apply the secret with a non-empty random value.
