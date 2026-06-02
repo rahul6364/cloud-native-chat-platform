@@ -90,12 +90,14 @@ cd cloud-native-chat-platform
 
 * `frontend/` - React app + `frontend/Dockerfile`
 * `backend/` - API + socket server + auth
-* `helm/chat-app/` - Helm chart (primary deployment)
+* `helm/chat-app/` - Helm chart (app workloads)
   * `values.yaml` - image tags, ingress, resources, HPA, PDB, network policies, secrets
   * `templates/` - deployments, HPA, PDB, NetworkPolicy, services, ingress, etc.
-* `k8s/` - legacy manifests and cluster utilities
-  * `argocd.yml` - ArgoCD Application (points at `helm/chat-app`)
-  * `pub-cert.pem` - kubeseal cluster cert for re-sealing secrets
+* `deploy/` - cluster bootstrap & GitOps
+  * `argocd/chat-app.yaml` - ArgoCD app for the chat Helm chart
+  * `argocd/monitoring.yaml` - ArgoCD app for Prometheus + Grafana
+  * `kind/kind-config.yaml` - Kind cluster config (ports 80/443)
+  * `secrets/` - kubeseal instructions (cluster cert is gitignored)
 
 ---
 
@@ -142,24 +144,11 @@ This guide assumes you are starting with a **new cluster** (specifically [Kind](
 
 If you haven't created a cluster yet, use the following configuration to ensure port 80 and 443 are mapped to your host.
 
-1. **Create `kind-config.yaml`**:
-```yaml
-kind: Cluster
-apiVersion: kind.x-k8s.io/v1alpha4
-nodes:
-- role: control-plane
-  extraPortMappings:
-  - containerPort: 80
-    hostPort: 80
-    protocol: TCP
-  - containerPort: 443
-    hostPort: 443
-    protocol: TCP
-```
+1. **Use the repo Kind config** at `deploy/kind/kind-config.yaml`.
 
 2. **Spin up the cluster**:
 ```bash
-kind create cluster --config kind-config.yaml
+kind create cluster --config deploy/kind/kind-config.yaml
 ```
 
 3. **Verify connectivity**:
@@ -200,7 +189,7 @@ Since Sealed Secrets are encrypted with a key unique to each cluster, the cipher
 
 2. **Fetch the Cluster Certificate**:
    ```bash
-   kubeseal --fetch-cert --controller-name=sealed-secrets --controller-namespace=kube-system > k8s/pub-cert.pem
+   kubeseal --fetch-cert --controller-name=sealed-secrets --controller-namespace=kube-system > deploy/secrets/pub-cert.pem
    ```
 
 3. **Generate your Encrypted Manifest**:
@@ -219,7 +208,7 @@ Since Sealed Secrets are encrypted with a key unique to each cluster, the cipher
      --from-literal=jwt-secret="$JWT_SECRET" \
      --namespace chat-app \
      --dry-run=client -o json | \
-     kubeseal --format yaml --cert k8s/pub-cert.pem > /tmp/backend-sealed.yaml
+     kubeseal --format yaml --cert deploy/secrets/pub-cert.pem > /tmp/backend-sealed.yaml
    ```
 
 4. **Copy encrypted values into Helm**:
@@ -317,7 +306,8 @@ The modern way. ArgoCD will monitor your repository and automatically sync chang
 4. **Connect the Application**:
    Apply the ArgoCD Application manifest (repo: `cloud-native-chat-platform`, branch: `main`, path: `helm/chat-app`):
    ```bash
-   kubectl apply -f k8s/argocd.yml
+   kubectl apply -f deploy/argocd/chat-app.yaml
+   kubectl apply -f deploy/argocd/monitoring.yaml
    ```
 
 5. **If the repo is private**, register credentials in ArgoCD once:
@@ -339,7 +329,7 @@ The modern way. ArgoCD will monitor your repository and automatically sync chang
 
 | Error | Fix |
 |-------|-----|
-| `unable to resolve 'helm-migration' to a commit SHA` | Branch was never pushed; use `targetRevision: main` in `k8s/argocd.yml` and re-apply. |
+| `unable to resolve 'helm-migration' to a commit SHA` | Branch was never pushed; use `targetRevision: main` in `deploy/argocd/chat-app.yaml` and re-apply. |
 | `repository not accessible` | Add GitHub PAT in ArgoCD if the repo is private. |
 | SealedSecret sync failed | Re-seal secrets for your cluster (see [Re-sealing Secrets](#-re-sealing-secrets-for-a-new-cluster)). |
 
@@ -371,24 +361,54 @@ Since we use Ingress with host-based routing (`chat-app.com`), common for produc
 
 ## 📊 Monitoring & Observability
 
-The application includes a full monitoring stack (Prometheus & Grafana) managed via ArgoCD.
+Prometheus and Grafana are deployed via ArgoCD (`deploy/argocd/monitoring.yaml`) using the [kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack) Helm chart into the `monitoring` namespace.
 
-1. **Deploy Monitoring**:
-   The monitoring stack is defined in `k8s/monitoring-app.yml` and is automatically synced by ArgoCD into the `monitoring` namespace.
+### Deploy monitoring
 
-2. **Access Grafana**:
-   ```bash
-   kubectl port-forward -n monitoring svc/monitoring-stack-grafana 3000:80
-   ```
-   - **URL**: `http://localhost:3000`
-   - **Login**: `admin`
-   - **Password**: `admin123` (configured in `k8s/monitoring-app.yml`)
+**With ArgoCD** (recommended — apply both apps together):
 
-3. **Access Prometheus**:
-   ```bash
-   kubectl port-forward -n monitoring svc/monitoring-stack-kube-prom-prometheus 9090:9090
-   ```
-   - **URL**: `http://localhost:9090`
+```bash
+kubectl apply -f deploy/argocd/monitoring.yaml
+```
+
+Wait until the ArgoCD app `monitoring-stack` is **Synced** and **Healthy**, then:
+
+```bash
+kubectl get pods -n monitoring
+```
+
+**Without ArgoCD** (Helm only):
+
+```bash
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo update
+kubectl create namespace monitoring
+helm upgrade --install monitoring-stack prometheus-community/kube-prometheus-stack \
+  -n monitoring \
+  --set grafana.adminPassword=admin123
+```
+
+### Access Grafana
+
+```bash
+kubectl port-forward -n monitoring svc/monitoring-stack-grafana 3000:80
+```
+
+- **URL**: http://localhost:3000
+- **User**: `admin`
+- **Password**: `admin123` (set in `deploy/argocd/monitoring.yaml`)
+
+Import Kubernetes dashboards from Grafana.com (e.g. **315** — Kubernetes cluster monitoring).
+
+### Access Prometheus
+
+```bash
+kubectl port-forward -n monitoring svc/monitoring-stack-kube-prom-prometheus 9090:9090
+```
+
+- **URL**: http://localhost:9090
+
+> If service names differ, run `kubectl get svc -n monitoring` and use the `grafana` / `kube-prom-prometheus` services.
 
 ---
 

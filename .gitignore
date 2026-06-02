@@ -27,3 +27,4 @@ dist-ssr
 # Kubernetes tools
 kubeseal
 kubeseal-*.tar.gz
+deploy/secrets/pub-cert.pem
