@@ -8,7 +8,7 @@ frontend:
   replicas: 2
   image:
     repository: rahul6364/full-stack-chatapp-frontend
-    tag: 2360aa0
+    tag: c213ef8
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
@@ -50,7 +50,7 @@ backend:
   replicas: 2
   image:
     repository: rahul6364/full-stack-chatapp-backend
-    tag: 2360aa0
+    tag: c213ef8
     pullPolicy: Always
   service:
     type: ClusterIP
