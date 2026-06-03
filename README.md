@@ -334,8 +334,16 @@ The modern way. ArgoCD will monitor your repository and automatically sync chang
 | `unable to resolve 'helm-migration' to a commit SHA` | Branch was never pushed; use `targetRevision: main` in `deploy/argocd/chat-app.yaml` and re-apply. |
 | `repository not accessible` | Add GitHub PAT in ArgoCD if the repo is private. |
 | SealedSecret sync failed | Re-seal secrets for your cluster (see [Re-sealing Secrets](#-re-sealing-secrets-for-a-new-cluster)). |
+| Socket.io `400 Bad Request` / WebSocket closed | Backend runs multiple replicas; Socket.io sessions are per-pod. Ensure ingress has **cookie affinity** (`nginx.ingress.kubernetes.io/affinity: cookie` in `helm/chat-app/values.yaml`) and sync the app. |
 
----
+### Socket.io with multiple backend replicas
+
+Socket.io keeps connection state in **process memory**. With HPA (2+ backend pods), polling/WebSocket follow-ups can hit a different pod than the handshake and return `400`.
+
+The Helm chart configures **sticky sessions** on the ingress (cookie affinity) and on the `backend` Service (`sessionAffinity: ClientIP`). After changing values, sync ArgoCD or run `helm upgrade` and hard-refresh the browser.
+
+For production at scale, consider a shared adapter (e.g. `@socket.io/redis-adapter` with Redis) so replicas can share socket state without stickiness.
+
 
 ## 🌐 Accessing the Application
 

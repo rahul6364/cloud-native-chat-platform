@@ -4,6 +4,10 @@ metadata:
   name: backend
   namespace: {{ include "chat-app.namespace" . }}
 spec:
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 3600
   selector:
     app: backend
   ports:

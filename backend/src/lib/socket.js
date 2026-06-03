@@ -14,7 +14,10 @@ const io = new Server(server, {
       "http://chat-app.com",
       "http://localhost:8080",
     ],
+    credentials: true,
   },
+  pingInterval: 25000,
+  pingTimeout: 60000,
 });
 
 export function getReceiverSocketId(userId) {
