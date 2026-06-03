@@ -3,6 +3,8 @@ kind: Service
 metadata:
   name: backend
   namespace: {{ include "chat-app.namespace" . }}
+  labels:
+    app: backend
 spec:
   sessionAffinity: ClientIP
   sessionAffinityConfig:
