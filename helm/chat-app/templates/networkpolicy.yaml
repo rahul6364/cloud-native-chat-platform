@@ -46,6 +46,13 @@ spec:
       ports:
         - protocol: TCP
           port: {{ .Values.backend.service.targetPort }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.monitoringNamespace }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.backend.service.targetPort }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

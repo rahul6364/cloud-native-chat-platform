@@ -3,6 +3,15 @@ namespace: chat-app
 networkPolicy:
   enabled: true
   ingressControllerNamespace: ingress-nginx
+  monitoringNamespace: monitoring
+
+metrics:
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    scrapeTimeout: 10s
+    # Must match kube-prometheus-stack Helm release name
+    prometheusRelease: monitoring-stack
 
 frontend:
   replicas: 2

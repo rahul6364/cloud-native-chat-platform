@@ -83,6 +83,7 @@ cd cloud-native-chat-platform
 * **Helm migration**: Kubernetes manifests moved to `helm/chat-app/`; ArgoCD deploys the Helm chart from `main`.
 * **Repository renamed**: Canonical repo is `cloud-native-chat-platform` (ArgoCD `repoURL` updated).
 * **Production hardening**: HPA, PodDisruptionBudgets, NetworkPolicies, and resource requests/limits on all workloads (via Helm values).
+* **Observability**: Prometheus metrics (`/metrics` + ServiceMonitor), Loki/Promtail centralized logs, Grafana dashboards.
 
 ---
 
@@ -95,7 +96,8 @@ cd cloud-native-chat-platform
   * `templates/` - deployments, HPA, PDB, NetworkPolicy, services, ingress, etc.
 * `deploy/` - cluster bootstrap & GitOps
   * `argocd/chat-app.yaml` - ArgoCD app for the chat Helm chart
-  * `argocd/monitoring.yaml` - ArgoCD app for Prometheus + Grafana
+  * `argocd/monitoring.yaml` - Prometheus + Grafana
+  * `argocd/loki.yaml` - Loki + Promtail logging stack
   * `kind/kind-config.yaml` - Kind cluster config (ports 80/443)
   * `secrets/` - kubeseal instructions (cluster cert is gitignored)
 
@@ -361,31 +363,68 @@ Since we use Ingress with host-based routing (`chat-app.com`), common for produc
 
 ## 📊 Monitoring & Observability
 
-Prometheus and Grafana are deployed via ArgoCD (`deploy/argocd/monitoring.yaml`) using the [kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack) Helm chart into the `monitoring` namespace.
+Full stack: **Prometheus** (metrics), **Loki** (logs), **Promtail** (log collection), **Grafana** (UI). The backend exposes **`/metrics`** via [prom-client](https://github.com/siimon/prom-client).
 
-### Deploy monitoring
+| Component | ArgoCD manifest | Role |
+|-----------|-----------------|------|
+| Prometheus + Grafana | `deploy/argocd/monitoring.yaml` | Metrics, dashboards, alerts |
+| Loki + Promtail | `deploy/argocd/loki.yaml` | Centralized logs (`loki-stack` chart) |
+| App metrics | `helm/chat-app` + `ServiceMonitor` | Scrapes `backend:5001/metrics` |
 
-**With ArgoCD** (recommended — apply both apps together):
+### Deploy observability (ArgoCD)
 
 ```bash
 kubectl apply -f deploy/argocd/monitoring.yaml
+kubectl apply -f deploy/argocd/loki.yaml
 ```
 
-Wait until the ArgoCD app `monitoring-stack` is **Synced** and **Healthy**, then:
+Wait until `monitoring-stack` and `loki` are **Synced** / **Healthy**, then:
 
 ```bash
 kubectl get pods -n monitoring
+kubectl get servicemonitor -n chat-app
 ```
 
-**Without ArgoCD** (Helm only):
+Rebuild and deploy the **backend** image after pulling this branch (metrics code is in the Node app):
 
 ```bash
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm repo update
-kubectl create namespace monitoring
-helm upgrade --install monitoring-stack prometheus-community/kube-prometheus-stack \
-  -n monitoring \
-  --set grafana.adminPassword=admin123
+# After CI pushes a new image tag, ArgoCD syncs chat-app — or bump tag in helm/chat-app/values.yaml
+```
+
+### Application metrics (`/metrics`)
+
+Installed in `backend/` with `prom-client`. Endpoints:
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `chatapp_http_requests_total` | Counter | HTTP requests by method, route, status |
+| `chatapp_http_request_duration_seconds` | Histogram | Request latency |
+| `chatapp_socket_connections_active` | Gauge | Active Socket.io connections |
+| `chatapp_active_users` | Gauge | Users online (socket map) |
+
+Local check:
+
+```bash
+curl -s http://localhost:5001/metrics | head -20
+```
+
+**Grafana → Explore → Prometheus** example queries:
+
+```promql
+sum(rate(chatapp_http_requests_total[5m])) by (route)
+histogram_quantile(0.95, sum(rate(chatapp_http_request_duration_seconds_bucket[5m])) by (le))
+chatapp_active_users
+chatapp_socket_connections_active
+```
+
+### Centralized logs (Loki + Promtail)
+
+**Grafana → Explore → Loki** (datasource pre-configured in `monitoring.yaml`):
+
+```logql
+{namespace="chat-app"} |= "error"
+{namespace="chat-app", pod=~"backend.*"} | json
+{namespace="chat-app", pod=~"frontend.*"}
 ```
 
 ### Access Grafana
@@ -396,9 +435,9 @@ kubectl port-forward -n monitoring svc/monitoring-stack-grafana 3000:80
 
 - **URL**: http://localhost:3000
 - **User**: `admin`
-- **Password**: `admin123` (set in `deploy/argocd/monitoring.yaml`)
+- **Password**: `admin123`
 
-Import Kubernetes dashboards from Grafana.com (e.g. **315** — Kubernetes cluster monitoring).
+Import dashboard **315** (Kubernetes cluster) or build panels from the PromQL / LogQL above.
 
 ### Access Prometheus
 
@@ -408,7 +447,7 @@ kubectl port-forward -n monitoring svc/monitoring-stack-kube-prom-prometheus 909
 
 - **URL**: http://localhost:9090
 
-> If service names differ, run `kubectl get svc -n monitoring` and use the `grafana` / `kube-prom-prometheus` services.
+> If service names differ: `kubectl get svc -n monitoring`
 
 ---
 
@@ -420,7 +459,9 @@ kubectl port-forward -n monitoring svc/monitoring-stack-kube-prom-prometheus 909
 - [ ] **Ingress**: `kubectl get ingress -n chat-app` (Hostname chat-app.com visible)
 - [ ] **Browser access** at `http://chat-app.com:8080/`.
 - [ ] **Monitoring**: `kubectl get pods -n monitoring` (All Running)
-- [ ] **Grafana Dashboard**: Accessible at `http://localhost:3000`.
+- [ ] **Grafana**: Accessible at `http://localhost:3000` (Loki + Prometheus datasources).
+- [ ] **Backend metrics**: `kubectl port-forward -n chat-app svc/backend 5001:5001` then `curl localhost:5001/metrics`.
+- [ ] **Loki logs**: Grafana Explore → `{namespace="chat-app"}` returns backend/frontend lines.
 
 ---
 

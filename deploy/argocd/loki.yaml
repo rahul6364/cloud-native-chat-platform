@@ -1,0 +1,38 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: loki
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://grafana.github.io/helm-charts
+    chart: loki-stack
+    targetRevision: 2.10.2
+    helm:
+      values: |
+        grafana:
+          enabled: false
+        prometheus:
+          enabled: false
+        loki:
+          isDefault: true
+          persistence:
+            enabled: false
+          config:
+            auth_enabled: false
+        promtail:
+          enabled: true
+          config:
+            logLevel: info
+            clients:
+              - url: http://loki:3100/loki/api/v1/push
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
