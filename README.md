@@ -130,81 +130,52 @@ This project provides a scalable, production-style chat application with:
 
 ## Production Architecture
 ```mermaid
-graph TB
-    %% Styling Definitions
-    classDef external fill:#f9f9f9,stroke:#333,stroke-width:2px,stroke-dasharray: 5 5;
-    classDef ingress fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px;
-    classDef app fill:#d5e8d4,stroke:#82b366,stroke-width:2px;
-    classDef data fill:#ffe6cc,stroke:#d79b00,stroke-width:2px;
-    classDef obs fill:#e1d5e7,stroke:#b85450,stroke-width:2px;
-    classDef gitops fill:#fff2cc,stroke:#d6b656,stroke-width:2px;
+graph LR
+    %% Theme Styling
+    classDef ext fill:#2d3748,stroke:#4a5568,stroke-width:2px,color:#fff;
+    classDef ing fill:#2b6cb0,stroke:#63b3ed,stroke-width:2px,color:#fff;
+    classDef app fill:#2f855a,stroke:#68d391,stroke-width:2px,color:#fff;
+    classDef storage fill:#c05621,stroke:#fbd38d,stroke-width:2px,color:#fff;
+    classDef monitor fill:#553c9a,stroke:#b794f4,stroke-width:2px,color:#fff;
+    classDef gitops fill:#744210,stroke:#ecc94b,stroke-width:2px,color:#fff;
 
-    %% External Clients
-    User((User Browser)):::external
-    Developer[Developer Push]:::external
-
-    %% Ingress & Routing
-    subgraph Ingress_Layer [Ingress Layer]
-        Ingress[NGINX Ingress Controller<br/>port: 8080 / chat-app.com]:::ingress
+    %% 1. External & CI/CD Layer
+    subgraph Control_Plane [CI/CD & GitOps Control Plane]
+        Dev[Developer Push]:::ext --> Git[GitHub Repo]:::gitops
+        Git --> GHA[GitHub Actions<br/>Trivy Scan & Build]:::gitops
+        GHA -->|Update Tags| Git
+        Argo[ArgoCD Controller]:::gitops -.->|Watch & Sync| Git
     end
 
-    %% Application Core Namespace
-    subgraph Chat_App_Namespace [Namespace: chat-app]
-        Frontend[Frontend Deployment<br/>React + Nginx SPA<br/>Min: 2 / Max: 5 Pods]:::app
-        Backend[Backend Deployment<br/>Node.js + Socket.io<br/>Min: 2 / Max: 5 Pods]:::app
-        Mongo[(MongoDB StatefulSet<br/>Persistent Volume)]:::data
+    %% 2. Traffic Ingress Layer
+    User((User Browser)):::ext -->|chat-app.com:8080| Ingress[NGINX Ingress Controller]:::ing
+    
+    %% 3. Core Workloads
+    subgraph Cluster [Kind Cluster Namespace: chat-app]
+        Ingress -->|/ paths| FE[Frontend Pods<br/>React + Nginx]:::app
+        Ingress -->|/api & /socket.io<br/>Cookie Sticky| SVC[Backend Service<br/>ClientIP Affinity]:::ing
+        SVC --> BE[Backend Pods<br/>Node.js + Socket.io]:::app
+        BE -->|Data Persistence| DB[(MongoDB<br/>StatefulSet)]:::storage
         
-        %% K8s Internal Hardening & Scaling
-        HPA[Horizontal Pod Autoscaler<br/>Target: 70% CPU]:::app
-        PDB[Pod Disruption Budget]:::app
-        NetPol[Network Policies]:::data
-        SealedSecret[Bitnami SealedSecret]:::gitops
-
-        Backend-Svc[Backend Service<br/>sessionAffinity: ClientIP]:::app
+        %% Hardening Elements
+        HPA[Horizontal Pod Autoscaler<br/>Target: 70% CPU]:::app -.->|Scales| BE
+        PDB[Pod Disruption Budget]:::app -.->|Protects| BE
+        NetPol[Network Policies]:::storage -.->|Isolates| DB
     end
 
-    %% Observability Stack Namespace
-    subgraph Monitoring_Namespace [Namespace: monitoring]
-        Prometheus[(Prometheus Time-Series)]:::obs
-        ServiceMonitor[ServiceMonitor<br/>app: backend]:::obs
-        Loki[(Loki Log Engine)]:::obs
-        Promtail[Promtail<br/>DaemonSet]:::obs
-        Grafana[Grafana Dashboard<br/>port: 3000]:::obs
+    %% 4. Observability Stack
+    subgraph Observability [Namespace: monitoring]
+        BE -->|Exposes /metrics| SM[ServiceMonitor]:::monitor
+        SM --> Prom[(Prometheus)]:::monitor
+        Prom --> Graf[Grafana Dashboards<br/>Port: 3000]:::monitor
+        
+        Tail[Promtail DaemonSet]:::monitor -->|Collects Logs| Loki[(Loki Engine)]:::monitor
+        Loki --> Graf
     end
-
-    %% CI/CD & GitOps Management
-    subgraph GitOps_Pipeline [GitOps & Control Plane]
-        GitHub[GitHub Repository<br/>Main Branch]:::gitops
-        GHActions[GitHub Actions<br/>CI / Trivy Scan]:::gitops
-        ArgoCD[ArgoCD Controller<br/>GitOps Sync]:::gitops
-    end
-
-    %% Core Traffic & Data Flows
-    User -->|chat-app.com:8080| Ingress
-    Ingress -->|/ paths| Frontend
-    Ingress -->|/api & /socket.io<br/>Cookie Affinity| Backend-Svc
-    Backend-Svc --> Backend
-    Backend -->|Persistent Storage| Mongo
-
-    %% Hardening Associations
-    HPA -.->|Scales Replicas| Backend & Frontend
-    PDB -.->|Protects| Backend & Frontend & Mongo
-    NetPol -.->|Restricts Traffic| Mongo
-
-    %% Observability Scraping & Directing
-    Backend -->|Exposes /metrics| ServiceMonitor
-    ServiceMonitor --> Prometheus
-    Promtail -->|Scrapes stdout/stderr| Backend & Frontend & Mongo
-    Promtail --> Loki
-    Prometheus --> Grafana
-    Loki --> Grafana
-
-    %% GitOps & Automation Automation
-    Developer --> GitHub
-    GitHub --> GHActions
-    GHActions -->|Bumps Image Tag| GitHub
-    ArgoCD -.->|Watches & Auto-Syncs| GitHub
-    ArgoCD -->|Deploys to Cluster| Chat_App_Namespace & Monitoring_Namespace
+    
+    %% Argo Deploy paths
+    Argo -.->|Deploys & Restores| Cluster
+    Argo -.->|Manages Stack| Observability
 ```
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
