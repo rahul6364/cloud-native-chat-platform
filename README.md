@@ -206,6 +206,7 @@ graph TB
     ArgoCD -.->|Watches & Auto-Syncs| GitHub
     ArgoCD -->|Deploys to Cluster| Chat_App_Namespace & Monitoring_Namespace
 ```
+```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                         Kind Cluster (chat-app.com)                     │
 │                                                                         │
