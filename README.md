@@ -129,7 +129,7 @@ This project provides a scalable, production-style chat application with:
 ---
 
 ## Production Architecture
-
+```mermaid
 graph TB
     %% Styling Definitions
     classDef external fill:#f9f9f9,stroke:#333,stroke-width:2px,stroke-dasharray: 5 5;
