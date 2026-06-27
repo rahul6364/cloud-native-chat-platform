@@ -130,6 +130,81 @@ This project provides a scalable, production-style chat application with:
 
 ## Production Architecture
 
+graph TB
+    %% Styling Definitions
+    classDef external fill:#f9f9f9,stroke:#333,stroke-width:2px,stroke-dasharray: 5 5;
+    classDef ingress fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px;
+    classDef app fill:#d5e8d4,stroke:#82b366,stroke-width:2px;
+    classDef data fill:#ffe6cc,stroke:#d79b00,stroke-width:2px;
+    classDef obs fill:#e1d5e7,stroke:#b85450,stroke-width:2px;
+    classDef gitops fill:#fff2cc,stroke:#d6b656,stroke-width:2px;
+
+    %% External Clients
+    User((User Browser)):::external
+    Developer[Developer Push]:::external
+
+    %% Ingress & Routing
+    subgraph Ingress_Layer [Ingress Layer]
+        Ingress[NGINX Ingress Controller<br/>port: 8080 / chat-app.com]:::ingress
+    end
+
+    %% Application Core Namespace
+    subgraph Chat_App_Namespace [Namespace: chat-app]
+        Frontend[Frontend Deployment<br/>React + Nginx SPA<br/>Min: 2 / Max: 5 Pods]:::app
+        Backend[Backend Deployment<br/>Node.js + Socket.io<br/>Min: 2 / Max: 5 Pods]:::app
+        Mongo[(MongoDB StatefulSet<br/>Persistent Volume)]:::data
+        
+        %% K8s Internal Hardening & Scaling
+        HPA[Horizontal Pod Autoscaler<br/>Target: 70% CPU]:::app
+        PDB[Pod Disruption Budget]:::app
+        NetPol[Network Policies]:::data
+        SealedSecret[Bitnami SealedSecret]:::gitops
+
+        Backend-Svc[Backend Service<br/>sessionAffinity: ClientIP]:::app
+    end
+
+    %% Observability Stack Namespace
+    subgraph Monitoring_Namespace [Namespace: monitoring]
+        Prometheus[(Prometheus Time-Series)]:::obs
+        ServiceMonitor[ServiceMonitor<br/>app: backend]:::obs
+        Loki[(Loki Log Engine)]:::obs
+        Promtail[Promtail<br/>DaemonSet]:::obs
+        Grafana[Grafana Dashboard<br/>port: 3000]:::obs
+    end
+
+    %% CI/CD & GitOps Management
+    subgraph GitOps_Pipeline [GitOps & Control Plane]
+        GitHub[GitHub Repository<br/>Main Branch]:::gitops
+        GHActions[GitHub Actions<br/>CI / Trivy Scan]:::gitops
+        ArgoCD[ArgoCD Controller<br/>GitOps Sync]:::gitops
+    end
+
+    %% Core Traffic & Data Flows
+    User -->|chat-app.com:8080| Ingress
+    Ingress -->|/ paths| Frontend
+    Ingress -->|/api & /socket.io<br/>Cookie Affinity| Backend-Svc
+    Backend-Svc --> Backend
+    Backend -->|Persistent Storage| Mongo
+
+    %% Hardening Associations
+    HPA -.->|Scales Replicas| Backend & Frontend
+    PDB -.->|Protects| Backend & Frontend & Mongo
+    NetPol -.->|Restricts Traffic| Mongo
+
+    %% Observability Scraping & Directing
+    Backend -->|Exposes /metrics| ServiceMonitor
+    ServiceMonitor --> Prometheus
+    Promtail -->|Scrapes stdout/stderr| Backend & Frontend & Mongo
+    Promtail --> Loki
+    Prometheus --> Grafana
+    Loki --> Grafana
+
+    %% GitOps & Automation Automation
+    Developer --> GitHub
+    GitHub --> GHActions
+    GHActions -->|Bumps Image Tag| GitHub
+    ArgoCD -.->|Watches & Auto-Syncs| GitHub
+    ArgoCD -->|Deploys to Cluster| Chat_App_Namespace & Monitoring_Namespace
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                         Kind Cluster (chat-app.com)                     │
