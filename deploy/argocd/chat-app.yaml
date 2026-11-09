@@ -7,11 +7,12 @@ spec:
   project: default
   source:
     repoURL: https://github.com/rahul6364/cloud-native-chat-platform.git
-    targetRevision: main
+    targetRevision: restore-kind-gitops
     path: helm/chat-app
     helm:
       valueFiles:
         - values.yaml
+        - values-kind.yaml
   destination:
     server: https://kubernetes.default.svc
     namespace: chat-app

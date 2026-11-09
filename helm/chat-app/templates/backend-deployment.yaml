@@ -37,7 +37,10 @@ spec:
             failureThreshold: {{ .Values.backend.probes.liveness.failureThreshold }}
           env:
             - name: MONGODB_URI
-              value: {{ .Values.backend.env.mongodbUri | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.backend.secretRef.name }}
+                  key: {{ .Values.backend.secretRef.keys.mongodbUri }}
             - name: PORT
               value: {{ .Values.backend.env.port | quote }}
             - name: NODE_ENV

@@ -1,0 +1,17 @@
+extends: default
+
+ignore: |
+  helm/chat-app/values-kind.yaml
+
+rules:
+  document-start: disable
+  truthy: disable
+
+  line-length:
+    max: 130
+    level: warning
+
+  trailing-spaces: enable
+
+  empty-lines:
+    max: 1

@@ -16,7 +16,7 @@ spec:
         prometheus:
           enabled: false
         loki:
-          isDefault: true
+          isDefault: false
           persistence:
             enabled: false
           config:

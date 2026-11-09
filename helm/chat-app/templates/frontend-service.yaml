@@ -3,6 +3,10 @@ kind: Service
 metadata:
   name: frontend
   namespace: {{ include "chat-app.namespace" . }}
+  {{- with .Values.frontend.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
   selector:
     app: frontend

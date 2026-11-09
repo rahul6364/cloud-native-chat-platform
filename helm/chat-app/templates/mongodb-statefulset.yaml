@@ -17,6 +17,7 @@ spec:
       containers:
         - name: mongodb
           image: {{ .Values.mongodb.image.repository }}:{{ .Values.mongodb.image.tag }}
+          imagePullPolicy: {{ .Values.mongodb.image.pullPolicy }}
           ports:
             - containerPort: {{ .Values.mongodb.service.targetPort }}
           startupProbe:
@@ -37,9 +38,15 @@ spec:
             periodSeconds: {{ .Values.mongodb.probes.liveness.periodSeconds }}
           env:
             - name: MONGO_INITDB_ROOT_USERNAME
-              value: {{ .Values.mongodb.auth.rootUsername | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mongodb.auth.existingSecret }}
+                  key: username
             - name: MONGO_INITDB_ROOT_PASSWORD
-              value: {{ .Values.mongodb.auth.rootPassword | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mongodb.auth.existingSecret }}
+                  key: password
           volumeMounts:
             - name: mongo-data
               mountPath: /data/db

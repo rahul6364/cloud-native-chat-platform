@@ -256,86 +256,115 @@ jobs:
         run: |
           docker push "${{ env.IMAGE_NAMESPACE }}/${{ env.FRONTEND_IMAGE }}:${{ needs.docker_meta.outputs.short_sha }}"
           docker push "${{ env.IMAGE_NAMESPACE }}/${{ env.FRONTEND_IMAGE }}:latest"
+  ecr_push:
+    name: Push Images to AWS ECR
+    runs-on: ubuntu-latest
+    needs: [docker_meta, container_scanning]
+    if: ${{ needs.docker_meta.outputs.should_push == 'true' && github.event_name != 'pull_request' && vars.AWS_ROLE_ARN != '' }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download built images
+        uses: actions/download-artifact@v4
+        with:
+          name: built-images-${{ needs.docker_meta.outputs.short_sha }}
+          path: /tmp/images
+      - name: Load backend image
+        run: docker load -i /tmp/images/backend-image.tar
 
-  update_helm_image_tags:
-    name: Update Helm image tags
+      - name: Load frontend image
+        run: docker load -i /tmp/images/frontend-image.tar
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: us-east-2
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Tag and push images
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          SHORT_SHA: ${{ needs.docker_meta.outputs.short_sha }}
+        run: |
+          docker tag "$IMAGE_NAMESPACE/$BACKEND_IMAGE:$SHORT_SHA" \
+            "$REGISTRY/chatapp-backend:$SHORT_SHA"
+          docker tag "$IMAGE_NAMESPACE/$FRONTEND_IMAGE:$SHORT_SHA" \
+            "$REGISTRY/chatapp-frontend:$SHORT_SHA"
+          docker push "$REGISTRY/chatapp-backend:$SHORT_SHA"
+          docker push "$REGISTRY/chatapp-frontend:$SHORT_SHA"
+
+  update_kind_helm:
+    name: Update Kind Helm Images
     runs-on: ubuntu-latest
     needs: [docker_meta, docker_push]
-    if: ${{ needs.docker_meta.outputs.should_push == 'true' && github.event_name != 'pull_request' }}
+    if: ${{needs.docker_meta.outputs.should_push=='true'&&github.event_name!='pull_request'}}
     permissions:
       contents: write
     steps:
-      - name: Checkout repository (main)
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           ref: main
           token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Update image tags in Helm values
+      - name: Update Docker Hub image tags
         env:
           SHORT_SHA: ${{ needs.docker_meta.outputs.short_sha }}
-          IMAGE_NAMESPACE: ${{ env.IMAGE_NAMESPACE }}
-          FRONTEND_IMAGE: ${{ env.FRONTEND_IMAGE }}
-          BACKEND_IMAGE: ${{ env.BACKEND_IMAGE }}
         run: |
-          python3 - <<'PY'
-          import os
-          from pathlib import Path
+          FILE=helm/chat-app/values.yaml
 
-          short_sha = os.environ["SHORT_SHA"]
-          image_namespace = os.environ["IMAGE_NAMESPACE"]
-          values_path = Path("helm/chat-app/values.yaml")
-
-          def update_section(lines: list[str], section: str, repo_name: str) -> None:
-              new_repo = f"{image_namespace}/{repo_name}"
-              in_section = False
-              in_image = False
-              updated_repo = False
-              updated_tag = False
-
-              for idx, line in enumerate(lines):
-                  if line == f"{section}:":
-                      in_section = True
-                      in_image = False
-                      continue
-                  if in_section and line and not line.startswith(" "):
-                      break
-                  if not in_section:
-                      continue
-                  if line.strip() == "image:":
-                      in_image = True
-                      continue
-                  if in_image and line.startswith("  ") and not line.startswith("    "):
-                      in_image = False
-                  if not in_image:
-                      continue
-                  if line.startswith("    repository:"):
-                      lines[idx] = f"    repository: {new_repo}"
-                      updated_repo = True
-                  elif line.startswith("    tag:"):
-                      lines[idx] = f"    tag: {short_sha}"
-                      updated_tag = True
-
-              if not updated_repo or not updated_tag:
-                  raise SystemExit(
-                      f"Did not update {section}.image.repository/tag in values.yaml"
-                  )
-
-          lines = values_path.read_text().splitlines()
-          update_section(lines, "frontend", os.environ["FRONTEND_IMAGE"])
-          update_section(lines, "backend", os.environ["BACKEND_IMAGE"])
-          values_path.write_text("\n".join(lines) + "\n")
-          PY
-
-      - name: Commit and push if changed
+          sed -i "/^frontend:/,/^backend:/ s/^    tag:.*/    tag: ${SHORT_SHA}/" "$FILE"
+          sed -i "/^backend:/,$ s/^    tag:.*/    tag: ${SHORT_SHA}/" "$FILE"
+      - name: Commit changes
         run: |
           if git diff --quiet; then
-            echo "No manifest changes to commit."
+            echo "No changes."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add helm/chat-app/values.yaml
-          git commit -m "chore(ci): update helm image tags to ${{ needs.docker_meta.outputs.short_sha }} [skip ci]"
+          git commit -m "chore(kind): update image tags"
           git push origin main
+  update_eks_helm:
+    name: Update EKS Helm Images
+    runs-on: ubuntu-latest
+    needs: [docker_meta, ecr_push, update_kind_helm]
+    if: >-
+      ${{
+        needs.docker_meta.outputs.should_push == 'true' &&
+        needs.ecr_push.result == 'success' &&
+        needs.update_kind_helm.result == 'success' &&
+        github.event_name != 'pull_request'
+      }}
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Update ECR image tags
+        env:
+          SHORT_SHA: ${{ needs.docker_meta.outputs.short_sha }}
+        run: |
+          FILE=helm/chat-app/values-eks.yaml
+          sed -i "/^frontend:/,/^backend:/ s/^    tag:.*/    tag: ${SHORT_SHA}/" "$FILE"
+          sed -i "/^backend:/,$ s/^    tag:.*/    tag: ${SHORT_SHA}/" "$FILE"
+      - name: Commit changes
+        run: |
+          if git diff --quiet; then
+            echo "No changes."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
+          git add helm/chat-app/values-eks.yaml
+          git commit -m "chore(eks): update image tags"
+          git push origin main

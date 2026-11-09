@@ -28,3 +28,4 @@ dist-ssr
 kubeseal
 kubeseal-*.tar.gz
 deploy/secrets/pub-cert.pem
+.local-secrets/
