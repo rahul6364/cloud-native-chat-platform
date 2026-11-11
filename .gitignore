@@ -29,3 +29,6 @@ kubeseal
 kubeseal-*.tar.gz
 deploy/secrets/pub-cert.pem
 .local-secrets/
+
+# Local deployment secrets and certificates
+ec2-sealed-secrets.pem
