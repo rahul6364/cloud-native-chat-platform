@@ -4,13 +4,13 @@ frontend:
   replicaCount: 1
   image:
     repository: rahul6364/full-stack-chatapp-frontend
-    tag: "9d557ab"
+    tag: 3fd78d9
     pullPolicy: IfNotPresent
 backend:
   replicaCount: 1
   image:
     repository: rahul6364/full-stack-chatapp-backend
-    tag: "9d557ab"
+    tag: 3fd78d9
     pullPolicy: Always
 autoscaling:
   enabled: false
