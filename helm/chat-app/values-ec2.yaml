@@ -1,26 +1,28 @@
 # EC2 Kind deployment overrides
 
 frontend:
-  replicaCount: 1
   image:
     repository: rahul6364/full-stack-chatapp-frontend
     tag: 3fd78d9
     pullPolicy: IfNotPresent
+  replicas: 1
 backend:
-  replicaCount: 1
   image:
     repository: rahul6364/full-stack-chatapp-backend
     tag: 3fd78d9
     pullPolicy: Always
+  replicas: 1
 autoscaling:
   enabled: false
 pdb:
   enabled: false
 mongodb:
-  replicaCount: 1
+  image:
+    tag: "7.0"
+  replicas: 1
 redis:
   enabled: true
-  replicaCount: 1
+  replicas: 1
 metrics:
   serviceMonitor:
     enabled: false
