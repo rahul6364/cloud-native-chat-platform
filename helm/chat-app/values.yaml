@@ -60,6 +60,7 @@ backend:
     type: ClusterIP
     port: 5001
     targetPort: 5001
+    sessionAffinity: None
   env:
     port: '5001'
     nodeEnv: production
@@ -172,3 +173,21 @@ mongodbSealedSecret:
   encryptedData:
     username: ''
     password: ''
+
+# Redis for distributed Socket.IO communication
+redis:
+  enabled: true
+  replicas: 1
+  image:
+    repository: redis
+    tag: "7.4-alpine"
+    pullPolicy: IfNotPresent
+  service:
+    port: 6379
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi

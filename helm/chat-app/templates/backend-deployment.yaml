@@ -45,6 +45,8 @@ spec:
               value: {{ .Values.backend.env.port | quote }}
             - name: NODE_ENV
               value: {{ .Values.backend.env.nodeEnv | quote }}
+            - name: REDIS_URL
+              value: {{ .Values.backend.env.redisUrl | default "redis://redis:6379" | quote }}
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:

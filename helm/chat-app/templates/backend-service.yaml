@@ -10,10 +10,7 @@ metadata:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  sessionAffinity: ClientIP
-  sessionAffinityConfig:
-    clientIP:
-      timeoutSeconds: 3600
+  sessionAffinity: {{ .Values.backend.service.sessionAffinity | default "None" }}
   selector:
     app: backend
   ports:
