@@ -6,12 +6,22 @@ frontend:
     tag: 3fd78d9
     pullPolicy: IfNotPresent
   replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+    limits:
+      cpu: 200m
 backend:
   image:
     repository: rahul6364/full-stack-chatapp-backend
     tag: 3fd78d9
     pullPolicy: Always
   replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+    limits:
+      cpu: 300m
 autoscaling:
   enabled: false
 pdb:
@@ -20,6 +30,11 @@ mongodb:
   image:
     tag: "7.0"
   replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+    limits:
+      cpu: 300m
 redis:
   enabled: true
   replicas: 1
