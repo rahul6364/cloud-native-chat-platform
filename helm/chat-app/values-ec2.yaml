@@ -11,6 +11,8 @@ frontend:
       cpu: 50m
     limits:
       cpu: 200m
+  autoscaling:
+    enabled: false
 backend:
   image:
     repository: rahul6364/full-stack-chatapp-backend
@@ -22,6 +24,8 @@ backend:
       cpu: 100m
     limits:
       cpu: 300m
+  autoscaling:
+    enabled: false
 autoscaling:
   enabled: false
 pdb:
