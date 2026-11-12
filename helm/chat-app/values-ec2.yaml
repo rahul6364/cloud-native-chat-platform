@@ -52,7 +52,7 @@ networkPolicy:
 ingress:
   enabled: true
   className: nginx
-  host: chat.54.89.24.194.nip.io
+  host: chat.54.205.48.250.nip.io
   annotations:
     nginx.ingress.kubernetes.io/proxy-body-size: 10m
 sealedSecret:
