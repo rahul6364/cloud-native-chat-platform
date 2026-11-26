@@ -1,0 +1,16 @@
+[Unit]
+Description=Update chat-platform nip.io endpoints on EC2 boot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/cloud-native-chat-platform
+ExecStart=/bin/bash /home/ubuntu/cloud-native-chat-platform/scripts/update-ec2-endpoints.sh
+# Set to "1" only after you have approved automated git pushes from this host.
+Environment=AUTO_PUSH=0
+ExecStartPost=/bin/sh -c 'if [ "${AUTO_PUSH}" = "1" ]; then /bin/bash /home/ubuntu/cloud-native-chat-platform/scripts/update-ec2-endpoints.sh --push; fi'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

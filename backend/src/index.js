@@ -11,6 +11,8 @@ import messageRoutes from "./routes/message.route.js";
 import healthRoutes from "./routes/health.route.js";
 import metricsRoutes from "./routes/metrics.route.js";
 import { metricsMiddleware } from "./middleware/metrics.middleware.js";
+import { updateRegisteredUsers } from "./lib/metrics.js";
+import User from "./models/user.model.js";
 import { app, server } from "./lib/socket.js";
 
 // Load environment variables from .env file
@@ -53,7 +55,17 @@ if (process.env.NODE_ENV === "production") {
   });
 }
 
-server.listen(PORT, () => {
+async function refreshRegisteredUsers() {
+  try {
+    updateRegisteredUsers(await User.countDocuments({}));
+  } catch (error) {
+    console.error("Failed to refresh registered users metric:", error.message);
+  }
+}
+
+server.listen(PORT, async () => {
   console.log("server is running on PORT:" + PORT);
-  connectDB();
+  await connectDB();
+  refreshRegisteredUsers();
+  setInterval(refreshRegisteredUsers, 60_000);
 });

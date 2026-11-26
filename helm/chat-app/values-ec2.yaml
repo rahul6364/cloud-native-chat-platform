@@ -44,7 +44,7 @@ redis:
   replicas: 1
 metrics:
   serviceMonitor:
-    enabled: false
+    enabled: true
 networkPolicy:
   enabled: true
   ingressControllerNamespace: ingress-nginx

@@ -1,0 +1,121 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chatapp-logs-and-errors
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  chatapp-logs-and-errors.json: |
+    {
+      "annotations": { "list": [] },
+      "editable": true,
+      "graphTooltip": 1,
+      "links": [],
+      "panels": [
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+          "id": 100,
+          "title": "Log volume",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
+          "id": 1,
+          "targets": [{ "expr": "sum by (app) (count_over_time({namespace=\"chat-app\"}[5m]))", "refId": "A" }],
+          "title": "Log lines by app (5m)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
+          "id": 2,
+          "targets": [{ "expr": "sum by (namespace) (count_over_time({namespace=~\".+\"}[5m]))", "refId": "A" }],
+          "title": "Log lines by namespace (5m)",
+          "type": "timeseries"
+        },
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 },
+          "id": 101,
+          "title": "Application logs (chat-app)",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 10 },
+          "id": 3,
+          "targets": [{ "expr": "{namespace=\"chat-app\", app=\"backend\"}", "refId": "A" }],
+          "title": "Backend logs",
+          "type": "logs"
+        },
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 20 },
+          "id": 4,
+          "targets": [{ "expr": "{namespace=\"chat-app\", app=\"backend\", stream=\"stderr\"}", "refId": "A" }],
+          "title": "Backend errors (stderr)",
+          "description": "The Node.js app logs plain text; stderr is the reliable error signal.",
+          "type": "logs"
+        },
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 30 },
+          "id": 5,
+          "targets": [{ "expr": "{namespace=\"chat-app\", app=\"backend\"} |~ \"(?i)error|fail|exception\"", "refId": "A" }],
+          "title": "Backend error-like lines",
+          "type": "logs"
+        },
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 40 },
+          "id": 6,
+          "targets": [{ "expr": "{namespace=\"chat-app\", app=\"frontend\"}", "refId": "A" }],
+          "title": "Frontend logs (nginx access)",
+          "type": "logs"
+        },
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "gridPos": { "h": 7, "w": 12, "x": 0, "y": 50 },
+          "id": 7,
+          "targets": [{ "expr": "{namespace=\"chat-app\", app=\"mongodb\"}", "refId": "A" }],
+          "title": "MongoDB logs (JSON)",
+          "type": "logs"
+        },
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "gridPos": { "h": 7, "w": 12, "x": 12, "y": 50 },
+          "id": 8,
+          "targets": [{ "expr": "{namespace=\"chat-app\", app=\"redis\"}", "refId": "A" }],
+          "title": "Redis logs (startup only)",
+          "description": "Redis logs only at startup; widen the time range to see history.",
+          "type": "logs"
+        },
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "gridPos": { "h": 7, "w": 12, "x": 0, "y": 57 },
+          "id": 9,
+          "targets": [{ "expr": "sum(count_over_time({namespace=\"chat-app\", app=\"backend\", stream=\"stderr\"}[5m]))", "refId": "A" }],
+          "title": "Backend error line rate",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "gridPos": { "h": 7, "w": 12, "x": 12, "y": 57 },
+          "id": 10,
+          "targets": [{ "expr": "{namespace=\"ingress-nginx\"} |~ \"(?i)error\"", "refId": "A" }],
+          "title": "Ingress-nginx errors",
+          "type": "logs"
+        }
+      ],
+      "refresh": "30s",
+      "schemaVersion": 39,
+      "tags": ["chatapp", "logs", "loki"],
+      "time": { "from": "now-1h", "to": "now" },
+      "timepicker": {},
+      "title": "ChatApp / Logs & Errors",
+      "uid": "chatapp-logs-errors",
+      "version": 1
+    }

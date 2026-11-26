@@ -1,0 +1,149 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chatapp-kubernetes-infra
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  chatapp-kubernetes-infra.json: |
+    {
+      "annotations": { "list": [] },
+      "editable": true,
+      "graphTooltip": 1,
+      "links": [],
+      "panels": [
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+          "id": 100,
+          "title": "Node & Cluster Health",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 5, "w": 6, "x": 0, "y": 1 },
+          "id": 1,
+          "targets": [{ "expr": "100 - (avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)", "refId": "A" }],
+          "title": "Node CPU utilization (%)",
+          "type": "stat",
+          "unit": "percent"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 5, "w": 6, "x": 6, "y": 1 },
+          "id": 2,
+          "targets": [{ "expr": "(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100", "refId": "A" }],
+          "title": "Node memory used (%)",
+          "type": "stat",
+          "unit": "percent"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 5, "w": 6, "x": 12, "y": 1 },
+          "id": 3,
+          "targets": [{ "expr": "kube_node_status_condition{condition=\"Ready\",status=\"true\"} == 1", "refId": "A" }],
+          "title": "Node Ready",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 5, "w": 6, "x": 18, "y": 1 },
+          "id": 4,
+          "targets": [
+            { "expr": "sum(kube_pod_status_ready{namespace=\"chat-app\",condition=\"true\"})", "legendFormat": "ready", "refId": "A" },
+            { "expr": "count(kube_pod_info{namespace=\"chat-app\"})", "legendFormat": "total", "refId": "B" }
+          ],
+          "title": "chat-app pods ready / total",
+          "type": "stat"
+        },
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 6 },
+          "id": 101,
+          "title": "Workloads (namespace chat-app)",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 7 },
+          "id": 5,
+          "targets": [{ "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"chat-app\",container!=\"\",container!=\"POD\"}[5m])) by (pod)", "legendFormat": "{{pod}}", "refId": "A" }],
+          "title": "CPU usage by pod (cores)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 7 },
+          "id": 6,
+          "targets": [{ "expr": "sum(container_memory_working_set_bytes{namespace=\"chat-app\",container!=\"\",container!=\"POD\"}) by (pod)", "legendFormat": "{{pod}}", "refId": "A" }],
+          "title": "Memory working set by pod",
+          "type": "timeseries",
+          "unit": "bytes"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 7, "w": 8, "x": 0, "y": 15 },
+          "id": 7,
+          "targets": [{ "expr": "sum(kube_pod_container_status_restarts_total{namespace=\"chat-app\"}) by (pod)", "legendFormat": "{{pod}}", "refId": "A" }],
+          "title": "Container restarts (cumulative)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 7, "w": 8, "x": 8, "y": 15 },
+          "id": 8,
+          "targets": [
+            { "expr": "kube_deployment_status_replicas_ready{namespace=\"chat-app\"}", "legendFormat": "{{deployment}} ready", "refId": "A" },
+            { "expr": "kube_deployment_spec_replicas{namespace=\"chat-app\"}", "legendFormat": "{{deployment}} desired", "refId": "B" }
+          ],
+          "title": "Deployment replicas ready vs desired",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 7, "w": 8, "x": 16, "y": 15 },
+          "id": 9,
+          "targets": [
+            { "expr": "kube_horizontalpodautoscaler_status_current_replicas{namespace=\"chat-app\"}", "legendFormat": "{{horizontalpodautoscaler}} current", "refId": "A" },
+            { "expr": "kube_horizontalpodautoscaler_status_desired_replicas{namespace=\"chat-app\"}", "legendFormat": "{{horizontalpodautoscaler}} desired", "refId": "B" }
+          ],
+          "title": "HPA current vs desired replicas",
+          "description": "Empty on the EC2 profile because autoscaling is disabled there (single 2 vCPU node). Populates when HPA is enabled.",
+          "type": "timeseries"
+        },
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 },
+          "id": 102,
+          "title": "Storage",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 7, "w": 12, "x": 0, "y": 23 },
+          "id": 10,
+          "targets": [{ "expr": "kube_persistentvolumeclaim_resource_requests_storage_bytes", "legendFormat": "{{namespace}}/{{persistentvolumeclaim}}", "refId": "A" }],
+          "title": "PVC requested storage",
+          "description": "Requested capacity. Live byte-level usage (kubelet_volume_stats_*) is not exposed by this Kind cluster.",
+          "type": "timeseries",
+          "unit": "bytes"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 7, "w": 12, "x": 12, "y": 23 },
+          "id": 11,
+          "targets": [{ "expr": "kube_persistentvolumeclaim_status_phase", "legendFormat": "{{namespace}}/{{persistentvolumeclaim}} = {{phase}}", "refId": "A" }],
+          "title": "PVC status phase",
+          "type": "timeseries"
+        }
+      ],
+      "refresh": "30s",
+      "schemaVersion": 39,
+      "tags": ["chatapp", "kubernetes"],
+      "time": { "from": "now-1h", "to": "now" },
+      "timepicker": {},
+      "title": "ChatApp / Kubernetes Infrastructure",
+      "uid": "chatapp-k8s-infra",
+      "version": 1
+    }

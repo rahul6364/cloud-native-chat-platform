@@ -1,0 +1,279 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chatapp-observability-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  chatapp-observability.json: |
+    {
+      "annotations": {
+        "list": []
+      },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 1,
+      "links": [],
+      "panels": [
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+          "id": 100,
+          "title": "Application & Cluster Metrics (Prometheus)",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 7, "w": 8, "x": 0, "y": 1 },
+          "id": 1,
+          "targets": [
+            {
+              "expr": "sum(rate(chatapp_http_requests_total[5m])) by (route, status_code)",
+              "legendFormat": "{{route}} ({{status_code}})",
+              "refId": "A"
+            }
+          ],
+          "title": "Backend HTTP Request Rate (req/s)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            }
+          },
+          "gridPos": { "h": 7, "w": 8, "x": 8, "y": 1 },
+          "id": 2,
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(chatapp_http_request_duration_seconds_bucket[5m])) by (le))",
+              "legendFormat": "p95 latency",
+              "refId": "A"
+            }
+          ],
+          "title": "Backend p95 Request Latency",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 7, "w": 4, "x": 16, "y": 1 },
+          "id": 3,
+          "targets": [
+            {
+              "expr": "chatapp_socket_connections_active",
+              "legendFormat": "Sockets",
+              "refId": "A"
+            },
+            {
+              "expr": "chatapp_active_users",
+              "legendFormat": "Active Users",
+              "refId": "B"
+            }
+          ],
+          "title": "Socket.IO Connections & Users",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 7, "w": 4, "x": 20, "y": 1 },
+          "id": 4,
+          "targets": [
+            {
+              "expr": "sum(kube_pod_container_status_restarts_total{namespace=\"chat-app\"}) by (pod)",
+              "legendFormat": "{{pod}}",
+              "refId": "A"
+            }
+          ],
+          "title": "chat-app Pod Restarts",
+          "type": "stat"
+        },
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 8 },
+          "id": 101,
+          "title": "Centralized Logs (Loki + Grafana Alloy)",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "gridPos": { "h": 7, "w": 12, "x": 0, "y": 9 },
+          "id": 5,
+          "targets": [
+            {
+              "expr": "sum by (namespace) (count_over_time({namespace=~\".+\"}[5m]))",
+              "legendFormat": "{{namespace}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Log Ingestion Volume by Namespace (5m)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "gridPos": { "h": 7, "w": 12, "x": 12, "y": 9 },
+          "id": 6,
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "prettifyLogMessage": false,
+            "showCommonLabels": false,
+            "showLabels": true,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": true
+          },
+          "targets": [
+            {
+              "expr": "{namespace=\"chat-app\", container=\"backend\"} |~ \"connected:|disconnected:\"",
+              "refId": "A"
+            }
+          ],
+          "title": "Socket.IO Connect / Disconnect Events",
+          "type": "logs"
+        },
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+          "id": 7,
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "showCommonLabels": false,
+            "showLabels": true,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": true
+          },
+          "targets": [
+            {
+              "expr": "{namespace=\"chat-app\", container=\"backend\"}",
+              "refId": "A"
+            }
+          ],
+          "title": "Backend Application Logs",
+          "type": "logs"
+        },
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+          "id": 8,
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "showCommonLabels": false,
+            "showLabels": true,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": true
+          },
+          "targets": [
+            {
+              "expr": "{namespace=\"chat-app\", container=\"frontend\"}",
+              "refId": "A"
+            }
+          ],
+          "title": "Frontend Nginx Logs",
+          "type": "logs"
+        },
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+          "id": 9,
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "showCommonLabels": false,
+            "showLabels": true,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": true
+          },
+          "targets": [
+            {
+              "expr": "{namespace=\"chat-app\", container=\"mongodb\"} | json",
+              "refId": "A"
+            }
+          ],
+          "title": "MongoDB Logs (Parsed JSON)",
+          "type": "logs"
+        },
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+          "id": 10,
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "showCommonLabels": false,
+            "showLabels": true,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": true
+          },
+          "targets": [
+            {
+              "expr": "{namespace=\"chat-app\", container=\"redis\"}",
+              "refId": "A"
+            }
+          ],
+          "title": "Redis Logs",
+          "type": "logs"
+        },
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+          "id": 11,
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "showCommonLabels": false,
+            "showLabels": true,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": true
+          },
+          "targets": [
+            {
+              "expr": "{namespace=\"ingress-nginx\"} |~ \"\\\" (4|5)[0-9]{2} \"",
+              "refId": "A"
+            },
+            {
+              "expr": "{namespace=\"chat-app\", container=\"backend\"} |~ \"(?i)(error|exception|global error handler)\"",
+              "refId": "B"
+            }
+          ],
+          "title": "HTTP 4xx / 5xx & Backend Errors",
+          "type": "logs"
+        },
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+          "id": 12,
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "showCommonLabels": false,
+            "showLabels": true,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": true
+          },
+          "targets": [
+            {
+              "expr": "{namespace=~\"chat-app|monitoring|ingress-nginx|argocd\"} |~ \"(?i)(error|fatal|panic|crash|oom|killed|refused|failed|backoff)\"",
+              "refId": "A"
+            }
+          ],
+          "title": "Kubernetes Workload Errors & Crash Troubleshooting",
+          "type": "logs"
+        }
+      ],
+      "refresh": "10s",
+      "schemaVersion": 39,
+      "tags": ["chat-app", "observability", "loki", "prometheus"],
+      "time": { "from": "now-1h", "to": "now" },
+      "title": "ChatApp Observability (Metrics & Logs)",
+      "uid": "chatapp-observability"
+    }

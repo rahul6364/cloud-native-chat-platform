@@ -3,6 +3,7 @@ import Message from "../models/message.model.js";
 
 import cloudinary from "../lib/cloudinary.js";
 import { io } from "../lib/socket.js";
+import { incrementMessagesSent } from "../lib/metrics.js";
 export const getUsersForSidebar = async (req, res) => {
   try {
     const loggedInUserId = req.user._id;
@@ -55,6 +56,8 @@ export const sendMessage = async (req, res) => {
     });
 
     await newMessage.save();
+
+    incrementMessagesSent();
 
     io.to(String(receiverId)).emit("newMessage", newMessage);
 

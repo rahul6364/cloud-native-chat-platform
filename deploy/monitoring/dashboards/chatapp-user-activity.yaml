@@ -1,0 +1,114 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chatapp-user-activity
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  chatapp-user-activity.json: |
+    {
+      "annotations": { "list": [] },
+      "editable": true,
+      "graphTooltip": 1,
+      "links": [],
+      "panels": [
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+          "id": 100,
+          "title": "User Activity & Chat Analytics",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 1 },
+          "id": 1,
+          "targets": [{ "expr": "max(chatapp_registered_users_total)", "refId": "A" }],
+          "title": "Registered users (DB count)",
+          "description": "Current number of user documents in MongoDB. Not the number of online users.",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 1 },
+          "id": 2,
+          "targets": [{ "expr": "max(chatapp_active_users)", "refId": "A" }],
+          "title": "Users online now",
+          "description": "Distinct authenticated users with an active Socket.IO session, across all backend replicas (Redis adapter).",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 1 },
+          "id": 3,
+          "targets": [{ "expr": "sum(chatapp_socket_connections_active)", "refId": "A" }],
+          "title": "Active Socket.IO connections",
+          "description": "Summed over backend replicas. One user may hold several connections (tabs/devices).",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 1 },
+          "id": 4,
+          "targets": [{ "expr": "sum(increase(chatapp_messages_sent_total[1h]))", "refId": "A" }],
+          "title": "Messages sent (last 1h)",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 7, "w": 8, "x": 0, "y": 5 },
+          "id": 5,
+          "targets": [{ "expr": "sum(chatapp_user_logins_total)", "refId": "A" }],
+          "title": "Successful logins (cumulative)",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 7, "w": 8, "x": 8, "y": 5 },
+          "id": 6,
+          "targets": [{ "expr": "sum(chatapp_user_registrations_total)", "refId": "A" }],
+          "title": "Successful registrations (cumulative)",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 7, "w": 8, "x": 16, "y": 5 },
+          "id": 7,
+          "targets": [{ "expr": "sum(chatapp_messages_sent_total)", "refId": "A" }],
+          "title": "Messages sent (cumulative)",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+          "id": 8,
+          "targets": [
+            { "expr": "max(chatapp_active_users)", "legendFormat": "users online", "refId": "A" },
+            { "expr": "sum(chatapp_socket_connections_active)", "legendFormat": "socket connections", "refId": "B" }
+          ],
+          "title": "Online users & socket connections",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+          "id": 9,
+          "targets": [
+            { "expr": "sum(rate(chatapp_user_logins_total[5m]))", "legendFormat": "logins/s", "refId": "A" },
+            { "expr": "sum(rate(chatapp_user_registrations_total[5m]))", "legendFormat": "registrations/s", "refId": "B" },
+            { "expr": "sum(rate(chatapp_messages_sent_total[5m]))", "legendFormat": "messages/s", "refId": "C" }
+          ],
+          "title": "Activity rates",
+          "type": "timeseries"
+        }
+      ],
+      "refresh": "30s",
+      "schemaVersion": 39,
+      "tags": ["chatapp", "users"],
+      "time": { "from": "now-30m", "to": "now" },
+      "timepicker": {},
+      "title": "ChatApp / User Activity",
+      "uid": "chatapp-user-activity",
+      "version": 1
+    }

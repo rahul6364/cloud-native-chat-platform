@@ -2,6 +2,7 @@ import { generateToken } from "../lib/utils.js";
 import User from "../models/user.model.js";
 import bcrypt from "bcryptjs";
 import cloudinary from "../lib/cloudinary.js";
+import { incrementUserLogins, incrementUserRegistrations } from "../lib/metrics.js";
 
 export const signup = async (req, res) => {
   const { fullName, email, password } = req.body;
@@ -31,6 +32,7 @@ export const signup = async (req, res) => {
       // generate jwt token here
       generateToken(newUser._id, res);
       await newUser.save();
+      incrementUserRegistrations();
 
       res.status(201).json({
         _id: newUser._id,
@@ -62,6 +64,7 @@ export const login = async (req, res) => {
     }
 
     generateToken(user._id, res);
+    incrementUserLogins();
 
     res.status(200).json({
       _id: user._id,

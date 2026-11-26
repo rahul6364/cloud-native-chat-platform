@@ -17,22 +17,26 @@ cd cloud-native-chat-platform
 * [Tech Stack](#tech-stack)
 * [Current Project Status](#current-project-status)
 * [Production Architecture](#production-architecture)
-* [GitOps Workflow](#gitops-workflow)
+* [GitOps & CI/CD Workflow](#gitops--cicd-workflow)
 * [Observability Architecture](#observability-architecture)
 * [Project Structure](#project-structure)
 * [Environment Configuration](#environment-configuration)
 * [Quick Start (Docker Compose)](#quick-start-docker-compose)
-* [🚀 Kubernetes Deployment from Scratch](#-kubernetes-deployment-from-scratch)
-    * [Step 1: Cluster Setup (Kind)](#step-1-cluster-setup-kind)
+* [🚀 Infrastructure Setup (AWS EC2 + Kind)](#-infrastructure-setup-aws-ec2--kind)
+    * [EC2 requirements](#ec2-requirements)
+    * [Ubuntu prerequisites](#ubuntu-prerequisites)
+    * [Create the Kind cluster](#create-the-kind-cluster)
     * [Step 2: Core Infrastructure (Ingress & Secrets)](#step-2-core-infrastructure-ingress--secrets)
     * [Step 3: Option A - Helm Deployment](#step-3-option-a---helm-deployment)
     * [Step 3b: HPA, PDB, and Network Policies](#step-3b-hpa-pdb-and-network-policies)
     * [Step 4: Option B - GitOps Deployment (ArgoCD)](#step-4-option-b---gitops-deployment-argocd)
+    * [Routine updates](#routine-updates)
+    * [EC2 Restart & IP-Change Recovery](#ec2-restart--ip-change-recovery)
 * [Load Testing & Autoscaling Validation](#load-testing--autoscaling-validation)
-* [🌐 Accessing the Application](#-accessing-the-application)
+* [🌐 Accessing the Services (ChatApp / Grafana / ArgoCD)](#-accessing-the-services-chatapp--grafana--argocd)
 * [📊 Monitoring & Observability](#-monitoring--observability)
 * [Validation Checklist](#validation-checklist)
-* [Issues Faced and Fixes](#issues-faced-and-fixes)
+* [Troubleshooting](#troubleshooting)
 * [CI/CD Status](#cicd-status)
 * [Project Achievements](#project-achievements)
 * [Contributing](#contributing)
@@ -47,11 +51,11 @@ This project goes beyond a demo chat app — it implements patterns used in prod
 | Category | Implementation |
 |----------|----------------|
 | **Packaging** | Helm chart (`helm/chat-app/`) with templated Deployments, Services, Ingress, HPA, PDB, NetworkPolicy, and SealedSecrets |
-| **GitOps** | ArgoCD watches `main` and auto-syncs Helm values to the cluster |
+| **GitOps** | ArgoCD watches the deployed branch and auto-syncs Helm values to the cluster |
 | **Metrics** | Prometheus scrapes custom app metrics from `GET /metrics` via ServiceMonitor |
 | **Dashboards** | Grafana with Prometheus and Loki datasources pre-configured |
-| **Logging** | Loki + Promtail centralized log aggregation from all pods |
-| **Autoscaling** | Horizontal Pod Autoscaler (HPA) on frontend and backend (2–5 replicas, 70% CPU target) |
+| **Logging** | Loki + Grafana Alloy centralized log aggregation from all pods |
+| **Autoscaling** | Horizontal Pod Autoscaler (HPA) on frontend and backend (2–5 replicas, 70% CPU target) — disabled on the EC2 profile (`values-ec2.yaml`, single 2 vCPU node) |
 | **Resilience** | Pod Disruption Budgets on frontend, backend, and MongoDB |
 | **Security** | Network Policies restricting pod-to-pod traffic; Bitnami Sealed Secrets for credentials in Git |
 | **Resources** | CPU/memory requests and limits on every workload |
@@ -95,7 +99,7 @@ This project provides a scalable, production-style chat application with:
 | **Packaging** | Helm |
 | **GitOps / CD** | ArgoCD |
 | **CI/CD** | GitHub Actions, Trivy, Gitleaks, CodeQL |
-| **Observability** | Prometheus, Grafana, Loki, Promtail |
+| **Observability** | Prometheus, Grafana, Loki, Grafana Alloy |
 | **Secrets** | Bitnami Sealed Secrets |
 | **Web Server** | Nginx (frontend container) |
 | **Authentication** | JWT + HTTP-only cookies |
@@ -111,7 +115,7 @@ This project provides a scalable, production-style chat application with:
 |------|--------|
 | **Application** | Backend, frontend, and MongoDB containerized and deployable on Kind |
 | **Local dev** | Docker Compose works at `http://localhost` |
-| **Helm migration** | Raw K8s manifests migrated to `helm/chat-app/`; ArgoCD deploys from `main` |
+| **Helm migration** | Raw K8s manifests migrated to `helm/chat-app/`; ArgoCD deploys from the `restore-kind-gitops` branch |
 | **GitOps** | ArgoCD auto-sync enabled for chat-app, monitoring, and Loki stacks |
 | **MongoDB** | Migrated from Deployment → **StatefulSet** with headless service and PVC |
 | **Health checks** | Backend `/health` returns `503` when MongoDB is disconnected; readiness/liveness probes on all workloads |
@@ -120,7 +124,7 @@ This project provides a scalable, production-style chat application with:
 | **HPA validation** | **Validated with k6** — backend scaled automatically from **2 → 3 replicas** when CPU exceeded the 70% threshold |
 | **Prometheus metrics** | Custom application metrics successfully scraped via ServiceMonitor |
 | **Grafana** | Dashboards and Explore views operational (Prometheus + Loki datasources) |
-| **Loki + Promtail** | Centralized application logs collected and visible in Grafana Explore |
+| **Loki + Grafana Alloy** | Centralized application logs collected and visible in Grafana Explore |
 | **Observability stack** | End-to-end metrics + logs pipeline verified |
 | **CI/CD** | GitHub Actions builds, scans (Trivy), pushes images, and updates Helm image tags |
 | **Socket.io multi-replica** | Ingress cookie affinity + backend session affinity for sticky Socket.io sessions |
@@ -129,9 +133,12 @@ This project provides a scalable, production-style chat application with:
 ---
 
 ## Production Architecture
+
+Runtime topology. CI/CD is shown separately in the
+[CI/CD Pipeline](#cicd-pipeline-github-actions--docker-hub--argocd) diagram.
+
 ```mermaid
 graph LR
-    %% Theme Styling
     classDef ext fill:#2d3748,stroke:#4a5568,stroke-width:2px,color:#fff;
     classDef ing fill:#2b6cb0,stroke:#63b3ed,stroke-width:2px,color:#fff;
     classDef app fill:#2f855a,stroke:#68d391,stroke-width:2px,color:#fff;
@@ -139,90 +146,85 @@ graph LR
     classDef monitor fill:#553c9a,stroke:#b794f4,stroke-width:2px,color:#fff;
     classDef gitops fill:#744210,stroke:#ecc94b,stroke-width:2px,color:#fff;
 
-    %% 1. External & CI/CD Layer
-    subgraph Control_Plane [CI/CD & GitOps Control Plane]
-        Dev[Developer Push]:::ext --> Git[GitHub Repo]:::gitops
-        Git --> GHA[GitHub Actions<br/>Trivy Scan & Build]:::gitops
-        GHA -->|Update Tags| Git
-        Argo[ArgoCD Controller]:::gitops -.->|Watch & Sync| Git
+    User((User Browser)):::ext -->|"chat.PUBLIC_IP.nip.io :80"| Ingress
+
+    subgraph EC2 ["AWS EC2 (Ubuntu) — Docker"]
+        subgraph Kind ["Kind Kubernetes Cluster"]
+            Ingress["NGINX Ingress Controller<br/>(host ports 80/443)"]:::ing
+            subgraph App ["namespace: chat-app"]
+                FE["Frontend Pods<br/>React + Nginx"]:::app
+                BE["Backend Pods<br/>Node.js + Express + Socket.IO"]:::app
+                Redis[("Redis<br/>Socket.IO pub/sub")]:::storage
+                DB[("MongoDB StatefulSet<br/>PVC")]:::storage
+            end
+            subgraph Ops ["namespaces: monitoring / argocd"]
+                Argo["ArgoCD<br/>(GitOps)"]:::gitops
+                Prom[("Prometheus")]:::monitor
+                Graf["Grafana"]:::monitor
+                Loki[("Loki")]:::monitor
+                Alloy["Grafana Alloy<br/>(DaemonSet)"]:::monitor
+            end
+        end
     end
 
-    %% 2. Traffic Ingress Layer
-    User((User Browser)):::ext -->|chat-app.com:8080| Ingress[NGINX Ingress Controller]:::ing
-    
-    %% 3. Core Workloads
-    subgraph Cluster [Kind Cluster Namespace: chat-app]
-        Ingress -->|/ paths| FE[Frontend Pods<br/>React + Nginx]:::app
-        Ingress -->|/api & /socket.io<br/>Cookie Sticky| SVC[Backend Service<br/>ClientIP Affinity]:::ing
-        SVC --> BE[Backend Pods<br/>Node.js + Socket.io]:::app
-        BE -->|Data Persistence| DB[(MongoDB<br/>StatefulSet)]:::storage
-        
-        %% Hardening Elements
-        HPA[Horizontal Pod Autoscaler<br/>Target: 70% CPU]:::app -.->|Scales| BE
-        PDB[Pod Disruption Budget]:::app -.->|Protects| BE
-        NetPol[Network Policies]:::storage -.->|Isolates| DB
-    end
+    Ingress -->|"/"| FE
+    Ingress -->|"/api, /socket.io"| BE
+    Ingress -->|"/grafana host"| Graf
+    Ingress -->|"/argocd host"| Argo
+    BE --> DB
+    BE -.-> Redis
+    BE -->|"/metrics"| Prom
+    Alloy -->|"pod logs"| Loki
+    Prom --> Graf
+    Loki --> Graf
+    Argo -.->|"sync from Git"| App
+    Argo -.->|"sync from Git"| Ops
+```
 
-    %% 4. Observability Stack
-    subgraph Observability [Namespace: monitoring]
-        BE -->|Exposes /metrics| SM[ServiceMonitor]:::monitor
-        SM --> Prom[(Prometheus)]:::monitor
-        Prom --> Graf[Grafana Dashboards<br/>Port: 3000]:::monitor
-        
-        Tail[Promtail DaemonSet]:::monitor -->|Collects Logs| Loki[(Loki Engine)]:::monitor
-        Loki --> Graf
-    end
-    
-    %% Argo Deploy paths
-    Argo -.->|Deploys & Restores| Cluster
-    Argo -.->|Manages Stack| Observability
 ```
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         Kind Cluster (chat-app.com)                     │
-│                                                                         │
-│  ┌──────────────┐     ┌─────────────────────────────────────────────┐  │
-│  │  ArgoCD      │────▶│  Helm Chart (helm/chat-app)                 │  │
-│  │  (GitOps)    │     │  ├── Frontend Deployment (Nginx + React)    │  │
-│  └──────────────┘     │  ├── Backend Deployment (Node.js + Socket)  │  │
-│                       │  ├── MongoDB StatefulSet                    │  │
-│                       │  ├── Ingress (NGINX)                        │  │
-│                       │  ├── HPA / PDB / NetworkPolicy              │  │
-│                       │  └── SealedSecret                           │  │
-│                       └─────────────────────────────────────────────┘  │
-│                                         │                               │
-│  ┌──────────────┐     ┌─────────────────▼───────────────────────────┐  │
-│  │ Ingress NGINX│────▶│  /api, /socket.io → Backend                 │  │
-│  │ (port 8080)  │     │  /              → Frontend                  │  │
-│  └──────────────┘     └─────────────────────────────────────────────┘  │
-│                                                                         │
-│  ┌──────────────────────────────────────────────────────────────────┐  │
-│  │  monitoring namespace                                            │  │
-│  │  ├── Prometheus  ← ServiceMonitor scrapes backend /metrics       │  │
-│  │  ├── Grafana     ← dashboards + Explore (metrics + logs)         │  │
-│  │  ├── Loki        ← log storage                                   │  │
-│  │  └── Promtail    ← collects logs from all cluster pods           │  │
-│  └──────────────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────── AWS EC2 instance — Ubuntu ────────────────────────────┐
+│                                                                                  │
+│  Docker ─▶ runs the Kind node container that hosts the whole cluster below       │
+  ┌───────────── Docker container — Kind node: Kubernetes cluster ─────────────┐
+  │                                                                            │
+  │  Users ─▶ :80/:443 ─▶ NGINX Ingress ─┬─▶ Frontend (React + Nginx)          │
+  │  chat.PUBLIC_IP.nip.io                 └─▶ Backend (Node.js, Express,      │
+  │                                                  Socket.IO)                │
+  │                                                                            │
+  │  Backend ─▶ MongoDB (StatefulSet + PVC)     Backend ◀▶ Redis (Socket.IO    │
+  │                                                 pub/sub adapter)           │
+  │                                                                            │
+  │  namespace monitoring                                                      │
+  │    Prometheus ◀─ /metrics ─ Backend    Alloy (DaemonSet) ─ pod logs ─▶ Loki│
+  │    Grafana ◀─ Prometheus + Loki                                            │
+  │                                                                            │
+  │  namespace argocd                                                          │
+  │    ArgoCD ◀─ watches GitHub ─ syncs every workload in this box             │
+  └────────────────────────────────────────────────────────────────────────────┘
+│                                                                                  │
+│  GitHub (source of truth) ◀─ push ─ GitHub Actions: build, scan, publish images  │
+│  (see "CI/CD Pipeline" diagram above)                                            │
+└──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 | Component | Role |
 |-----------|------|
 | **Frontend Deployment** | Serves React SPA via Nginx; proxies `/api` and `/socket.io` internally when accessed via service |
 | **Backend Deployment** | REST API, Socket.io server, JWT auth, Prometheus `/metrics` endpoint |
-| **MongoDB StatefulSet** | Persistent chat data with stable network identity |
-| **Ingress NGINX** | Host-based routing (`chat-app.com`), WebSocket support, sticky sessions for Socket.io |
-| **ArgoCD** | Watches Git repo; auto-syncs Helm chart and observability stacks |
+| **MongoDB StatefulSet** | Persistent chat data with stable network identity and a PVC |
+| **Kind** | Single-node Kubernetes cluster running inside Docker on the EC2 host |
+| **Ingress NGINX** | Host-based routing on nip.io hostnames, WebSocket support, cookie affinity for Socket.io |
+| **ArgoCD** | Watches the Git branch; auto-syncs the Helm chart and observability stacks |
 | **Prometheus** | Scrapes Kubernetes and custom application metrics |
 | **Grafana** | Visualization — dashboards, Explore, alerting |
 | **Loki** | Centralized log aggregation and indexing |
-| **Promtail** | DaemonSet that ships container logs to Loki |
+| **Grafana Alloy** | DaemonSet that discovers pod logs and ships them to Loki |
 
 ---
 
 ## GitOps Workflow
 
-Every push to `main` triggers a fully automated delivery pipeline:
+Every push to the deployed branch (`restore-kind-gitops` on EC2; `main` for dev) triggers a fully automated delivery pipeline:
 
 ```
 Developer Push (main)
@@ -238,7 +240,7 @@ GitHub Actions CI
         │
         ▼
 Helm Values Update
-  └── helm/chat-app/values.yaml image tags bumped to new SHA
+  └── helm/chat-app/values-ec2.yaml image tags bumped to new SHA
         │
         ▼
 Git commit + push to main  [skip ci]
@@ -247,7 +249,8 @@ Git commit + push to main  [skip ci]
 ArgoCD detects diff
   ├── chat-app      → syncs Helm chart
   ├── monitoring-stack → Prometheus + Grafana
-  └── loki          → Loki + Promtail
+  ├── loki          → Loki (log storage, single binary)
+  └── alloy         → Grafana Alloy (log collector DaemonSet)
         │
         ▼
 Kubernetes Rollout
@@ -262,7 +265,34 @@ ArgoCD applications:
 |-----|----------|---------|
 | `chat-app` | `deploy/argocd/chat-app.yaml` | Application Helm chart |
 | `monitoring-stack` | `deploy/argocd/monitoring.yaml` | Prometheus + Grafana |
-| `loki` | `deploy/argocd/loki.yaml` | Loki + Promtail |
+| `loki` | `deploy/argocd/loki.yaml` | Loki (single binary, log storage) |
+| `alloy` | `deploy/argocd/alloy.yaml` | Grafana Alloy (log collector DaemonSet) |
+
+---
+
+## CI/CD Pipeline (GitHub Actions → Docker Hub → ArgoCD)
+
+```mermaid
+graph LR
+    classDef vcs fill:#744210,stroke:#ecc94b,stroke-width:2px,color:#fff;
+    classDef ci fill:#2b6cb0,stroke:#63b3ed,stroke-width:2px,color:#fff;
+    classDef reg fill:#c05621,stroke:#fbd38d,stroke-width:2px,color:#fff;
+    classDef cd fill:#744210,stroke:#ecc94b,stroke-width:2px,color:#fff;
+
+    Dev[Developer Push]:::vcs --> GH[GitHub Actions]:::ci
+    GH --> Scan[Gitleaks + CodeQL + Trivy]:::ci
+    Scan --> Build[Build Backend + Frontend Images]:::ci
+    Build --> DH[(Docker Hub<br/>tag: short-SHA + latest)]:::reg
+    Dev -->|bump image tag in<br/>helm/chat-app/values-ec2.yaml| Git[(Git: restore-kind-gitops)]:::vcs
+    Git --> Argo[ArgoCD auto-sync]:::cd
+    Argo --> K8s[(Kind Cluster on EC2)]:::cd
+    DH -.->|image pull| K8s
+```
+
+The pipeline builds and scans images on every push to the deployed branch (code changes only —
+`deploy/**` and `helm/**` changes skip the build). Deployments are **GitOps**: updating the image
+`tag` in `helm/chat-app/values-ec2.yaml` and pushing is what triggers ArgoCD to roll out the new
+version; the workflow itself never touches the cluster.
 
 ---
 
@@ -289,14 +319,15 @@ Application (Node.js)
 ### Logs path
 
 ```
-Kubernetes Pods (stdout/stderr)
+Kubernetes Pods (stdout/stderr → /var/log/pods on the node)
         │
         ▼
-   Promtail (DaemonSet on each node)
+   Grafana Alloy (DaemonSet on each node)
+   discovery.kubernetes → discovery.relabel → local.file_match → loki.source.file
         │
         ▼
    Loki  →  indexes and stores logs
-        │
+        │  (labels: namespace, pod, container, app, node, stream)
         ▼
    Grafana  →  Explore (LogQL)
 ```
@@ -305,7 +336,7 @@ Kubernetes Pods (stdout/stderr)
 
 * **Custom metrics** — `backend/src/lib/metrics.js` exposes Prometheus metrics at `/metrics`
 * **ServiceMonitor discovery** — `helm/chat-app/templates/servicemonitor-backend.yaml` tells Prometheus which Service/port to scrape
-* **Loki centralized logging** — Promtail automatically collects logs from all pods in the cluster; filter by `{namespace="chat-app"}`
+* **Loki centralized logging** — Grafana Alloy automatically collects logs from all pods in the cluster; filter by `{namespace="chat-app"}`
 * **Grafana visualization** — single UI for metrics (Prometheus) and logs (Loki); datasource URLs configured in `deploy/argocd/monitoring.yaml`
 
 ---
@@ -324,13 +355,25 @@ cloud-native-chat-platform/
 │   ├── values.yaml            # image tags, ingress, HPA, PDB, secrets, resources
 │   └── templates/             # Deployments, HPA, PDB, NetworkPolicy, ServiceMonitor, etc.
 ├── deploy/
-│   ├── argocd/
-│   │   ├── chat-app.yaml      # ArgoCD app — Helm chart
+│   ├── argocd/                # ArgoCD Applications (bootstrap with kubectl apply)
+│   │   ├── chat-app.yaml      # ChatApp — Helm chart with values-ec2.yaml
 │   │   ├── monitoring.yaml    # Prometheus + Grafana (+ Loki datasource)
-│   │   └── loki.yaml          # Loki + Promtail (loki-stack chart)
+│   │   ├── loki.yaml          # Loki single binary (log storage)
+│   │   ├── alloy.yaml         # Grafana Alloy (log collector DaemonSet)
+│   │   └── grafana-secret.yaml# SealedSecret for Grafana admin credentials
+│   ├── ingress/               # Public ingresses (nip.io hostnames)
+│   │   ├── grafana-ingress.yaml
+│   │   └── argocd-ingress.yaml
+│   ├── monitoring/dashboards/ # Grafana dashboard ConfigMaps (grafana_dashboard: "1")
 │   ├── kind/kind-config.yaml  # Kind cluster (ports 80/443)
 │   └── secrets/               # kubeseal instructions (cert is gitignored)
+├── helm/chat-app/             # Application Helm chart (values-ec2.yaml = live values)
+├── scripts/
+│   └── update-ec2-endpoints.sh # EC2 IP-change endpoint recovery (idempotent)
+├── backend/  frontend/        # Application source (CI builds images)
 ├── load.js                    # k6 load test script (HPA validation)
+├── OBSERVABILITY_PROGRESS.md  # Observability implementation handoff log
+├── PROJECT_UPGRADE_PROGRESS.md# Upgrade implementation handoff log
 └── .github/workflows/cicd.yml # CI/CD pipeline
 ```
 
@@ -374,26 +417,49 @@ Open `http://localhost`.
 
 ---
 
-## 🚀 Kubernetes Deployment from Scratch
+## 🚀 Infrastructure Setup (AWS EC2 + Kind)
 
-This guide assumes you are starting with a **new cluster** (specifically [Kind](https://kind.sigs.k8s.io/)) on a Linux/WSL2 system.
+The deployment runs on a single **AWS EC2 Ubuntu** instance hosting a [Kind](https://kind.sigs.k8s.io/) cluster, with **ArgoCD** applying everything from Git. This section is the **one-time installation** from a fresh EC2 instance. For a purely local setup, see [Quick Start (Docker Compose)](#quick-start-docker-compose).
 
-### Step 1: Cluster Setup (Kind)
+### EC2 requirements
 
-If you haven't created a cluster yet, use the following configuration to ensure port 80 and 443 are mapped to your host.
+| Requirement | Value |
+|---|---|
+| OS | Ubuntu 22.04 LTS |
+| Instance size | 2 vCPU / 8 GB RAM recommended (e.g. t3.large) — the full stack incl. monitoring fits comfortably; 2 vCPU / 4 GB works but is tight |
+| Disk | 30 GB |
+| Security group | Inbound TCP **22** (SSH), **80 + 443** (Kind maps these into the ingress controller) |
+| Public IPv4 | Auto-assigned by AWS — **changes when the instance is stopped/started** (see [EC2 Restart & IP-Change Recovery](#ec2-restart--ip-change-recovery)) |
 
-1. **Use the repo Kind config** at `deploy/kind/kind-config.yaml`.
+### Ubuntu prerequisites
 
-2. **Spin up the cluster**:
+Install Docker, kubectl, Kind and Helm. Versions this deployment was validated with: Docker 29.x, Kind v0.30, kubectl v1.33, Helm v3.22.
+
+```bash
+# Docker (engine + CLI; the Kind node runs inside Docker)
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker $USER && newgrp docker
+
+# kubectl
+curl -LO "https://dl.k8s.io/release/v1.33.13/bin/linux/amd64/kubectl"
+sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+
+# Kind
+[ $(uname -m) = x86_64 ] && curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.30.0/kind-linux-amd64
+sudo install -o root -g root -m 0755 kind /usr/local/bin/kind
+
+# Helm 3
+curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+```
+
+### Create the Kind cluster
+
+The repo Kind config maps host ports **80/443** into the cluster so NGINX Ingress serves traffic directly on the EC2 public IP — no load balancer needed:
 
 ```bash
 kind create cluster --config deploy/kind/kind-config.yaml
-```
-
-3. **Verify connectivity**:
-
-```bash
 kubectl cluster-info
+kubectl get nodes
 ```
 
 ### Step 2: Core Infrastructure (Ingress & Secrets)
@@ -549,13 +615,26 @@ The modern way. ArgoCD will monitor your repository and automatically sync chang
    kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d && echo
    ```
 
-4. **Connect the Application**:
-   Apply the ArgoCD Application manifests (repo: `cloud-native-chat-platform`, branch: `main`):
+4. **Connect the Applications**:
+   Apply the ArgoCD Application manifests. The live deployment tracks the `restore-kind-gitops`
+   branch and renders the Helm chart with `helm/chat-app/values-ec2.yaml` (EC2-specific ingress
+   host, image tags, autoscaling-off):
 
    ```bash
    kubectl apply -f deploy/argocd/chat-app.yaml
    kubectl apply -f deploy/argocd/monitoring.yaml
    kubectl apply -f deploy/argocd/loki.yaml
+   kubectl apply -f deploy/argocd/alloy.yaml
+   kubectl apply -f deploy/argocd/grafana-secret.yaml
+   ```
+
+5. **Apply the public ingresses** (ChatApp's ingress comes from the Helm chart; Grafana and
+   ArgoCD ingresses are plain manifests — hostnames must match the current EC2 IP, which
+   `scripts/update-ec2-endpoints.sh` sets for you):
+
+   ```bash
+   kubectl apply -f deploy/ingress/grafana-ingress.yaml
+   kubectl apply -f deploy/ingress/argocd-ingress.yaml
    ```
 
 5. **If the repo is private**, register credentials in ArgoCD once:
@@ -574,6 +653,7 @@ The modern way. ArgoCD will monitor your repository and automatically sync chang
    argocd app sync chat-app
    argocd app sync monitoring-stack
    argocd app sync loki
+   argocd app sync alloy
    ```
 
 *ArgoCD pulls from `https://github.com/rahul6364/cloud-native-chat-platform.git` and deploys the Helm chart at `helm/chat-app`.*
@@ -595,11 +675,50 @@ The Helm chart configures **sticky sessions** on the ingress (cookie affinity) a
 
 For production at scale, consider a shared adapter (e.g. `@socket.io/redis-adapter` with Redis) so replicas can share socket state without stickiness.
 
+### Routine updates
+
+| Change | What to do |
+|---|---|
+| **New app version** | CI builds images tagged with the commit SHA on every push. Update `backend.tag` / `frontend.tag` in `helm/chat-app/values-ec2.yaml`, commit + push → ArgoCD rolls out automatically. |
+| **Helm values change** (resources, replicas, ingress) | Edit `helm/chat-app/values-ec2.yaml`, commit + push → ArgoCD auto-sync (self-heal keeps the cluster in sync with Git). |
+| **Monitoring stack** (dashboards, datasources, retention) | Edit the relevant `deploy/argocd/*.yaml` or `deploy/monitoring/dashboards/` manifests, commit + push. For chart apps with inline values (`loki`, `alloy`, `monitoring-stack`), also `kubectl apply -f deploy/argocd/<app>.yaml` to update the Application spec immediately. |
+| **Emergency manual change** | Possible but will be reverted by ArgoCD self-heal unless the matching Git change is committed. |
+
+### EC2 Restart & IP-Change Recovery
+
+The EC2 public IP is **not stable** — it changes when the instance is stopped and started again.
+All public hostnames are `<subdomain>.<PUBLIC_IP>.nip.io` wildcards, so after a restart the
+ingress hostnames must be updated to the new IP. Recovery flow:
+
+```
+EC2 restarted  →  new public IP detected (curl -s https://checkip.amazonaws.com)
+      →  scripts/update-ec2-endpoints.sh updates the 3 hostname sources
+      →  ingress resources re-applied / ArgoCD syncs
+      →  ChatApp / Grafana / ArgoCD verified
+```
+
+```bash
+bash scripts/update-ec2-endpoints.sh          # update files + apply live, print URLs
+bash scripts/update-ec2-endpoints.sh --push   # also commit + push so ArgoCD converges (chat-app ingress is GitOps-managed)
+```
+
+What the script covers vs. what needs GitHub:
+
+- **Local only (no push needed):** Grafana and ArgoCD ingress hostnames (their manifests are not ArgoCD-managed), and the immediate live patch of the ChatApp ingress.
+- **Requires commit + push:** `helm/chat-app/values-ec2.yaml` (ChatApp ingress host) — ArgoCD's self-heal pulls this from GitHub, so without a push it will revert the live change to the old hostname.
+- `deploy/kind/kind-config.yaml` (port maps) survives a restart because the Kind **cluster must be recreated** after an EC2 restart (Kind clusters are not persistent). If that happens, re-run the one-time setup from [Step 2](#step-2-core-infrastructure-ingress--secrets) onward, then the script above. MongoDB data survives via the host-bound PVC only if the cluster is recreated with the same `local-path-provisioner` storage layout — otherwise re-seal secrets and accept data loss (this is a demo environment; for durability use a real cluster or an Elastic IP + stable storage).
+
+> **Elastic IP alternative:** associating an AWS Elastic IP removes the whole problem (IP stays across stop/start). AWS charges ~$0.005/hour for *any* in-use public IPv4 address (your auto-assigned IP already accrues this); an Elastic IP attached to a running instance costs the same, so it is roughly cost-neutral — but it is a manual AWS change and is intentionally not part of the automation.
+
 ---
 
 ## Load Testing & Autoscaling Validation
 
 HPA behavior was validated using **[k6](https://k6.io/)** load testing against the backend health endpoint.
+
+> **Optional / local only.** This validation was done on a local Kind cluster with HPA enabled.
+> The EC2 deployment runs with autoscaling disabled (single 2 vCPU node — see `values-ec2.yaml`),
+> so the commands below apply only if you re-enable HPA.
 
 ### Prerequisites
 
@@ -677,41 +796,60 @@ kubectl get hpa -n chat-app
 
 ---
 
-## 🌐 Accessing the Application
+## 🌐 Accessing the Services (ChatApp / Grafana / ArgoCD)
 
-Since we use Ingress with host-based routing (`chat-app.com`), common for production setups:
+All services are exposed through the NGINX ingress controller using **nip.io** wildcards — a free
+service that resolves `<anything>.<PUBLIC_IP>.nip.io` to `<PUBLIC_IP>`. Because the hostnames are
+derived from the EC2 public IP, no hosts-file edits, DNS setup or TLS certificates are required.
+Kind maps host ports 80/443 into the ingress controller, so the hostnames work from anywhere
+that can reach the EC2 instance.
 
-1. **Update Local Hosts File**:
-   Add this line to `/etc/hosts` (Linux/Mac) or `C:\Windows\System32\drivers\etc\hosts` (Windows):
+Get the current IP with `curl -s https://checkip.amazonaws.com`, then:
 
-   ```text
-   127.0.0.1  chat-app.com
-   ```
+| Service | URL (HTTP) | Namespace / resource |
+|---|---|---|
+| **ChatApp** | `http://chat.<PUBLIC_IP>.nip.io` | `chat-app/chat-app` ingress (Helm-managed) |
+| **Grafana** | `http://grafana.<PUBLIC_IP>.nip.io` | `monitoring/grafana-ingress` |
+| **ArgoCD** | `http://<PUBLIC_IP>.nip.io` | `argocd/argocd-ingress` |
 
-2. **Expose the Ingress Controller locally**:
+For the current example IP this is:
 
-   ```bash
-   kubectl port-forward -n ingress-nginx svc/ingress-nginx-controller 8080:80
-   ```
+```text
+http://chat.54.166.64.251.nip.io
+http://grafana.54.166.64.251.nip.io
+http://54.166.64.251.nip.io            # ArgoCD
+```
 
-   Reach the app at: `http://chat-app.com:8080`.
+Credentials:
 
-3. **Public Access via Ngrok (Optional)**:
+- **ChatApp** — register a user in the UI (JWT auth).
+- **Grafana** — credentials from sealed secret `grafana-admin-credentials`:
+  ```bash
+  kubectl -n monitoring get secret grafana-admin-credentials \
+    -o jsonpath='{.data.admin-user}'     | base64 -d; echo
+  kubectl -n monitoring get secret grafana-admin-credentials \
+    -o jsonpath='{.data.admin-password}' | base64 -d; echo
+  ```
+- **ArgoCD** — `admin` + `kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d` (delete the initial secret after first login).
 
-   ```bash
-   ngrok http 8080 --host-header="chat-app.com"
-   ```
+If the URLs stop resolving after an EC2 stop/start, the public IP changed — run
+[EC2 Restart & IP-Change Recovery](#ec2-restart--ip-change-recovery).
+
+**Optional troubleshooting access** (when ingress is broken): port-forwarding is still available as
+a fallback, e.g. `kubectl port-forward -n monitoring svc/monitoring-stack-grafana 3000:80`.
+It is not the primary access method on EC2.
 
 ---
 
 ## 📊 Monitoring & Observability
 
-Full stack: **Prometheus** (metrics), **Loki** (logs), **Promtail** (log collection), **Grafana** (UI). The backend exposes **`/metrics`** via [prom-client](https://github.com/siimon/prom-client).
+Full stack: **Prometheus** (metrics), **Loki** (logs), **Grafana Alloy** (log collection), **Grafana** (UI). The backend exposes **`/metrics`** via [prom-client](https://github.com/siimon/prom-client).
 
 | Component | ArgoCD manifest | Role |
 |-----------|-----------------|------|
 | Prometheus + Grafana | `deploy/argocd/monitoring.yaml` | Metrics, dashboards, alerts |
-| Loki + Promtail | `deploy/argocd/loki.yaml` | Centralized logs (`loki-stack` chart) |
+| Loki | `deploy/argocd/loki.yaml` | Centralized log storage (single binary, 7-day retention) |
+| Grafana Alloy | `deploy/argocd/alloy.yaml` | Log collection DaemonSet — ships pod logs to Loki |
 | App metrics | `helm/chat-app` + `ServiceMonitor` | Scrapes `backend:5001/metrics` |
 
 ### Deploy observability (ArgoCD)
@@ -719,9 +857,10 @@ Full stack: **Prometheus** (metrics), **Loki** (logs), **Promtail** (log collect
 ```bash
 kubectl apply -f deploy/argocd/monitoring.yaml
 kubectl apply -f deploy/argocd/loki.yaml
+kubectl apply -f deploy/argocd/alloy.yaml
 ```
 
-Wait until `monitoring-stack` and `loki` are **Synced** / **Healthy**, then:
+Wait until `monitoring-stack`, `loki` and `alloy` are **Synced** / **Healthy**, then:
 
 ```bash
 kubectl get pods -n monitoring
@@ -765,37 +904,68 @@ chatapp_socket_connections_active
 sum(rate(chatapp_http_requests_total{status_code=~"5.."}[5m]))
 ```
 
-### Centralized logs (Loki + Promtail)
+### Centralized logs (Loki + Grafana Alloy)
 
-Promtail runs as a DaemonSet and automatically ships container logs to Loki. No application code changes required — `console.log` and stderr output are collected.
+Grafana Alloy runs as a DaemonSet on every node, discovers pods through the Kubernetes API, tails
+their log files under `/var/log/pods`, and ships every line to Loki with Kubernetes metadata labels
+(`namespace`, `pod`, `container`, `app`, `node`, `stream`). No application code changes are
+required — `console.log` and stderr output are collected, including from pods that are not Ready.
+Read positions are persisted on the node (`/var/lib/alloy`), so container restarts never re-ingest
+or duplicate logs.
 
-**Grafana → Explore → Loki** (datasource pre-configured in `monitoring.yaml`):
+**Grafana → Explore → Loki** (datasource pre-configured in `monitoring.yaml`). All queries below
+are validated against live data:
 
 ```logql
-# All chat-app logs
+# All backend logs
+{namespace="chat-app", app="backend"}
+
+# Backend errors — the app logs plain text, so stream is the reliable signal
+{namespace="chat-app", app="backend", stream="stderr"}
+
+# All chat-app logs, and log volume per app
 {namespace="chat-app"}
+sum by (app) (count_over_time({namespace="chat-app"}[5m]))
 
-# Backend errors only
-{namespace="chat-app", pod=~"backend.*"} |= "error"
+# Frontend logs (nginx access logs)
+{namespace="chat-app", app="frontend"}
 
-# Frontend logs
-{namespace="chat-app", pod=~"frontend.*"}
+# MongoDB logs (JSON lines — parse fields with | json)
+{namespace="chat-app", app="mongodb"} | json
+
+# Redis logs (Redis only logs at startup — widen the time range if empty)
+{namespace="chat-app", app="redis"}
+
+# Ingress-nginx access logs
+{namespace="ingress-nginx", container="controller"}
 
 # Socket.io connection events
-{namespace="chat-app", pod=~"backend.*"} |= "connected"
+{namespace="chat-app", app="backend"} |= "connected"
+
+# By pod pattern — survives pod restarts (pod names change, app/container labels don't)
+{pod=~"backend-.*"}
 ```
 
 Enable **Live** mode in Explore to tail logs in real time while testing.
 
 ### Access Grafana
 
+**Via ingress (EC2):** http://grafana.54.166.64.251.nip.io
+
+**Or port-forward locally:**
+
 ```bash
 kubectl port-forward -n monitoring svc/monitoring-stack-grafana 3000:80
 ```
 
 - **URL**: http://localhost:3000
-- **User**: `admin`
-- **Password**: `admin123`
+- **Credentials**: from sealed secret `grafana-admin-credentials` (re-seal, don't commit plaintext):
+  ```bash
+  kubectl -n monitoring get secret grafana-admin-credentials \
+    -o jsonpath='{.data.admin-user}'     | base64 -d; echo
+  kubectl -n monitoring get secret grafana-admin-credentials \
+    -o jsonpath='{.data.admin-password}' | base64 -d; echo
+  ```
 
 Import dashboard **315** (Kubernetes cluster) or build panels from the PromQL / LogQL queries above.
 
@@ -816,24 +986,119 @@ Search for `chatapp_` in the Prometheus query UI to verify custom metrics are be
 ## Validation Checklist
 
 - [ ] **Cluster Health**: `kubectl get nodes` (Ready)
-- [ ] **ArgoCD Apps**: `chat-app`, `monitoring-stack`, `loki` — Synced & Healthy
+- [ ] **ArgoCD Apps**: `chat-app`, `monitoring-stack`, `loki`, `alloy` — Synced & Healthy
 - [ ] **Namespace**: `kubectl get pods -n chat-app` (All Running)
-- [ ] **Ingress**: `kubectl get ingress -n chat-app` (Hostname `chat-app.com` visible)
-- [ ] **Browser access** at `http://chat-app.com:8080/`
+- [ ] **Ingress**: `kubectl get ingress -A` (hosts are `<name>.<PUBLIC_IP>.nip.io`)
+- [ ] **Browser access** at `http://chat.<PUBLIC_IP>.nip.io`
 - [ ] **HPA**: `kubectl get hpa -n chat-app` (targets visible, minReplicas: 2)
 - [ ] **Monitoring**: `kubectl get pods -n monitoring` (All Running)
-- [ ] **Grafana**: Accessible at `http://localhost:3000` (Loki + Prometheus datasources)
+- [ ] **Grafana**: Accessible at `http://grafana.<PUBLIC_IP>.nip.io` (Loki + Prometheus datasources)
 - [ ] **Backend metrics**: `curl localhost:5001/metrics` shows `chatapp_*` metrics; Prometheus targets show `backend` ServiceMonitor UP
 - [ ] **Loki logs**: Grafana Explore → `{namespace="chat-app"}` returns backend/frontend lines
+- [ ] **Log collection**: `kubectl get pods -n monitoring -l app.kubernetes.io/name=alloy` Running; new pods' logs appear in Loki automatically
 - [ ] **Load test**: k6 run causes backend HPA to scale above `minReplicas` under CPU load
 
 ---
 
-## Issues Faced and Fixes
+## Troubleshooting
+
+Runbook items for the live EC2 + Kind deployment. "Issues Faced and Fixes" at the bottom of this
+section documents problems hit during development and how they were solved.
+
+### EC2 public IP changed (hostnames stopped working)
+
+```bash
+NEW_IP=$(curl -s https://checkip.amazonaws.com) && echo "new IP: $NEW_IP"
+bash scripts/update-ec2-endpoints.sh            # updates files + applies ingresses, prints URLs
+# ChatApp's ingress is GitOps-managed — to stop ArgoCD reverting it, commit + push:
+bash scripts/update-ec2-endpoints.sh --push
+```
+
+### Pods not starting / CrashLoopBackOff / ImagePullBackOff
+
+```bash
+kubectl get pods -A | grep -v Running           # find offenders
+kubectl describe pod <pod> -n <ns>              # see events (scheduling, probes, image)
+kubectl logs <pod> -n <ns> --previous           # logs of the crashed container
+kubectl get events -A --sort-by=.lastTimestamp | tail -20
+```
+
+- `ImagePullBackOff` → image tag doesn't exist in Docker Hub (CI not run / typo in `values-ec2.yaml`). Check `https://hub.docker.com/u/rahul6364` or run the CI publish job.
+- `CrashLoopBackOff` → usually missing/invalid secrets (see re-sealing section) or app errors in `--previous` logs.
+- `Insufficient cpu` in events → node is at its CPU request budget (2 vCPU); scale down non-essential workloads or lower requests.
+
+### ArgoCD OutOfSync / unhealthy
+
+```bash
+kubectl -n argocd get applications              # expected: all Synced + Healthy
+argocd app diff chat-app                        # or: kubectl -n argocd describe app chat-app
+```
+
+- OutOfSync right after a manual `kubectl` change → expected (self-heal will revert it; make the change in Git instead).
+- Stale sync after editing an Application manifest → `kubectl -n argocd annotate application <app> argocd.argoproj.io/refresh=hard --overwrite`.
+- Progressing forever → check pod status in the target namespace (usually a stuck rollout behind the scenes).
+
+### Ingress 502 / 503
+
+```bash
+kubectl get ingress -A                          # confirm hosts + endpoints
+kubectl -n chat-app get endpoints backend frontend   # must have pod IPs; empty = selector/label problem
+kubectl -n chat-app logs deploy/backend --tail=20
+```
+
+502 usually means the backend pods are restarting (probe failures / secrets) or the service
+selector doesn't match the pod labels.
+
+### Grafana datasource failures
+
+```bash
+kubectl -n monitoring get pods                  # grafana, prometheus, loki all Running?
+curl -s http://loki.monitoring.svc.cluster.local:3100/ready   # from the grafana pod:
+kubectl -n monitoring exec deploy/monitoring-stack-grafana -c grafana -- curl -s http://loki.monitoring.svc.cluster.local:3100/ready
+```
+
+Datasources are provisioned from `deploy/argocd/monitoring.yaml` (`additionalDataSources`).
+Health-check endpoints: Grafana → **Connections → Data sources → (Prometheus/Loki) → Save & test**.
+
+### Loki ingestion failures / no logs in Explore
+
+```bash
+kubectl -n monitoring logs loki-0 --tail=50 | grep -iE 'level=(error|warn)'
+kubectl -n monitoring logs -l app.kubernetes.io/name=alloy -c alloy --tail=50 | grep -iE 'level=(error|warn)'
+```
+
+- Alloy `timestamp too old` 400s right after startup → expected one-time bootstrap noise when
+  positions are reset (Loki rejects samples older than the 168h retention window); they stop as
+  soon as the tailer reaches the present.
+- No logs at all → check Alloy discovery: `kubectl -n monitoring logs -l app.kubernetes.io/name=alloy -c alloy | grep -c 'start tailing file'`.
+
+### Alloy failures
+
+```bash
+kubectl -n monitoring get pods -l app.kubernetes.io/name=alloy
+kubectl -n monitoring logs -l app.kubernetes.io/name=alloy -c alloy --tail=50
+# Config errors usually show as "could not perform the initial load successfully" — check
+# deploy/argocd/alloy.yaml (only generally-available Alloy components are enabled by the chart).
+```
+
+### Persistent volume issues
+
+```bash
+kubectl get pvc -A                              # mongo-data-mongodb-0 (chat-app), storage-loki-0 (monitoring)
+kubectl -n chat-app describe pvc mongo-data-mongodb-0
+```
+
+Kind uses the bundled `local-path-provisioner` (StorageClass `standard`). A `Lost`/`Failed` PVC on
+Kind usually means the backing path disappeared after an EC2 restart with cluster recreation.
+**Never delete PVCs** — MongoDB data lives in `mongo-data-mongodb-0`.
+
+### Issues Faced and Fixes
 
 ### 1) Ingress hostname mismatch
 
-* **Fix:** set host in `helm/chat-app/values.yaml` (`ingress.host`) to `chat-app.com`, add `127.0.0.1 chat-app.com` in hosts file.
+### 1) Ingress hostname mismatch
+
+* **Fix:** hosts are nip.io-based — `ingress.host` in `helm/chat-app/values-ec2.yaml` must be `chat.<PUBLIC_IP>.nip.io`. After an EC2 IP change run `scripts/update-ec2-endpoints.sh` (see [recovery](#ec2-restart--ip-change-recovery)).
 
 ### 2) Auth 401 on protected APIs after login
 
@@ -860,9 +1125,8 @@ Search for `chatapp_` in the Prometheus query UI to verify custom metrics are be
 
 ### 7) Loki datasource health-check warning in Grafana
 
-* **Problem:** Grafana showed a warning on the Loki datasource health check.
-* **Root cause:** known Grafana/Loki health-check compatibility issue with the `loki-stack` chart version.
-* **Resolution:** Loki log queries work correctly — use **Grafana → Explore → Loki** with `{namespace="chat-app"}`. Logs are visible despite the datasource health-check warning. No action required for local/Kind deployments.
+* **Problem (historical):** Grafana showed a warning on the Loki datasource health check when Loki came from the old `loki-stack` chart.
+* **Resolution:** fixed by the `loki` Helm chart 7.x single-binary deployment — the datasource health endpoint now returns `"Data source successfully connected"`. Query logs via **Grafana → Explore → Loki**, e.g. `{namespace="chat-app"}`.
 
 ---
 
@@ -891,7 +1155,7 @@ See [GitOps Workflow](#gitops-workflow) for the full end-to-end diagram.
 
 * Migrated raw Kubernetes manifests to a structured **Helm chart** with parameterized values.
 * Implemented a **GitOps deployment model** using ArgoCD with automated sync and self-heal.
-* Implemented **centralized logging** using Loki and Promtail — logs from all pods searchable in Grafana.
+* Implemented **centralized logging** using Loki and Grafana Alloy — logs from all pods searchable in Grafana, validated end-to-end including automatic discovery of restarted pods.
 * Implemented **application observability** using Prometheus and Grafana with custom `prom-client` metrics.
 * Implemented **autoscaling (HPA)** and validated it through **k6 load testing** (backend scaled 2 → 3 replicas under load).
 * Secured secrets using **Bitnami Sealed Secrets** — credentials safe to commit in a public repository.

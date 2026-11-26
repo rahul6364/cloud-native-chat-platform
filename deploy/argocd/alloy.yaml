@@ -1,0 +1,192 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: alloy
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://grafana.github.io/helm-charts
+    chart: alloy
+    targetRevision: 1.16.0
+    helm:
+      values: |
+        crds:
+          create: false
+        controller:
+          type: daemonset
+          volumes:
+            extra:
+              # Persist Alloy's read positions (/tmp/alloy) on the node so a
+              # container restart or pod recreation does not re-read (and
+              # re-ingest) existing log files into Loki.
+              - name: alloy-data
+                hostPath:
+                  path: /var/lib/alloy
+                  type: DirectoryOrCreate
+        rbac:
+          create: true
+        serviceAccount:
+          create: true
+        service:
+          enabled: true
+          type: ClusterIP
+        alloy:
+          mounts:
+            varlog: true
+            extra:
+              - name: alloy-data
+                mountPath: /tmp/alloy
+          securityContext:
+            runAsUser: 0
+          resources:
+            requests:
+              cpu: 25m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          configMap:
+            create: true
+            content: |-
+              // ---------------------------------------------------------------------------
+              // Grafana Alloy - Kubernetes pod log collection.
+              // Only generally-available components are used, so the chart's default
+              // --stability.level=generally-available is fine.
+              //
+              //   discovery.kubernetes -> discovery.relabel -> local.file_match
+              //   -> loki.source.file -> loki.process -> loki.write
+              // ---------------------------------------------------------------------------
+
+              // Watch Pods through the Kubernetes API.
+              discovery.kubernetes "pods" {
+                role = "pod"
+              }
+
+              // Turn every Pod container into one log-file target and define the
+              // labels that are sent to Loki.
+              discovery.relabel "pods" {
+                targets = discovery.kubernetes.pods.targets
+
+                // Never collect Alloy's own logs (avoids a log feedback loop).
+                rule {
+                  source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+                  regex         = "alloy"
+                  action        = "drop"
+                }
+
+                // One target per container. The pod directory on the node is named
+                // <namespace>_<pod>_<uid>, so every file is matched by exactly one
+                // target.
+                rule {
+                  source_labels = ["__meta_kubernetes_pod_uid", "__meta_kubernetes_pod_container_name"]
+                  separator     = "/"
+                  regex         = "([^/]+)/([^/]+)"
+                  replacement   = "/var/log/pods/*$1/$2/*.log"
+                  target_label  = "__path__"
+                  action        = "replace"
+                }
+
+                // A container with several ports yields one discovery target per port,
+                // all pointing at the same files. Give those targets identical
+                // internal labels so they collapse into a single tailer (prevents
+                // duplicate logs).
+                rule {
+                  regex  = "__meta_kubernetes_pod_container_port_.*"
+                  action = "labeldrop"
+                }
+                rule {
+                  source_labels = ["__meta_kubernetes_pod_node_name"]
+                  target_label  = "__address__"
+                  action        = "replace"
+                }
+
+                // Labels sent to Loki.
+                rule {
+                  source_labels = ["__meta_kubernetes_namespace"]
+                  target_label  = "namespace"
+                  action        = "replace"
+                }
+                rule {
+                  source_labels = ["__meta_kubernetes_pod_name"]
+                  target_label  = "pod"
+                  action        = "replace"
+                }
+                rule {
+                  source_labels = ["__meta_kubernetes_pod_container_name"]
+                  target_label  = "container"
+                  action        = "replace"
+                }
+                rule {
+                  source_labels = ["__meta_kubernetes_pod_node_name"]
+                  target_label  = "node"
+                  action        = "replace"
+                }
+
+                // app = pod label app.kubernetes.io/name, or the plain app label.
+                rule {
+                  source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name", "__meta_kubernetes_pod_label_app"]
+                  regex         = "(.+);(.+)"
+                  replacement   = "$1"
+                  target_label  = "app"
+                  action        = "replace"
+                }
+                rule {
+                  source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name", "__meta_kubernetes_pod_label_app"]
+                  regex         = "(.+);"
+                  replacement   = "$1"
+                  target_label  = "app"
+                  action        = "replace"
+                }
+                rule {
+                  source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name", "__meta_kubernetes_pod_label_app"]
+                  regex         = ";(.+)"
+                  replacement   = "$1"
+                  target_label  = "app"
+                  action        = "replace"
+                }
+              }
+
+              // Watch the matched files. Files of new pods are picked up here.
+              local.file_match "pod_logs" {
+                path_targets = discovery.relabel.pods.output
+              }
+
+              // Tail the files and forward every line as a log entry.
+              loki.source.file "pod_logs" {
+                targets    = local.file_match.pod_logs.targets
+                forward_to = [loki.process.pod_logs.receiver]
+              }
+
+              loki.process "pod_logs" {
+                // containerd/CRI lines look like "<timestamp> <stdout|stderr> <F|P> <message>":
+                // use the container timestamp, add the `stream` label, strip the prefix.
+                stage.cri {}
+
+                // The file path contains the pod UID and restart counter. Drop it so a
+                // pod restart does not create extra Loki streams.
+                stage.label_drop {
+                  values = ["filename"]
+                }
+
+                forward_to = [loki.write.loki.receiver]
+              }
+
+              loki.write "loki" {
+                endpoint {
+                  url = "http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push"
+                }
+                external_labels = {}
+              }
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

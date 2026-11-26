@@ -1,0 +1,100 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chatapp-application-overview
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  chatapp-application-overview.json: |
+    {
+      "annotations": { "list": [] },
+      "editable": true,
+      "graphTooltip": 1,
+      "links": [],
+      "panels": [
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+          "id": 100,
+          "title": "Application Overview — Backend HTTP",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 1 },
+          "id": 1,
+          "targets": [{ "expr": "sum(chatapp_http_requests_total)", "refId": "A" }],
+          "title": "Total HTTP requests (cumulative)",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 1 },
+          "id": 2,
+          "targets": [{ "expr": "sum(rate(chatapp_http_requests_total[5m]))", "refId": "A" }],
+          "title": "Request rate (req/s)",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 1 },
+          "id": 3,
+          "targets": [{ "expr": "sum(rate(chatapp_http_requests_total{status_code=~\"5..\"}[5m]))", "refId": "A" }],
+          "title": "5xx error rate (req/s)",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 1 },
+          "id": 4,
+          "targets": [{ "expr": "up{job=\"backend\"}", "refId": "A" }],
+          "title": "Backend availability (1=up)",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 5 },
+          "id": 5,
+          "targets": [{ "expr": "sum(rate(chatapp_http_requests_total[5m])) by (route, status_code)", "legendFormat": "{{route}} ({{status_code}})", "refId": "A" }],
+          "title": "Request rate by route",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 5 },
+          "id": 6,
+          "targets": [{ "expr": "histogram_quantile(0.95, sum(rate(chatapp_http_request_duration_seconds_bucket[5m])) by (le))", "refId": "A" }],
+          "title": "p95 latency (s)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 6, "w": 12, "x": 0, "y": 13 },
+          "id": 7,
+          "targets": [
+            { "expr": "sum(rate(chatapp_http_requests_total{status_code=~\"2..\"}[5m]))", "legendFormat": "2xx", "refId": "A" },
+            { "expr": "sum(rate(chatapp_http_requests_total{status_code=~\"4..\"}[5m]))", "legendFormat": "4xx", "refId": "B" },
+            { "expr": "sum(rate(chatapp_http_requests_total{status_code=~\"5..\"}[5m]))", "legendFormat": "5xx", "refId": "C" }
+          ],
+          "title": "Status-code classes (req/s)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 6, "w": 12, "x": 12, "y": 13 },
+          "id": 8,
+          "targets": [{ "expr": "count(up{job=\"backend\"})", "refId": "A" }],
+          "title": "Backend pod count",
+          "type": "stat"
+        }
+      ],
+      "refresh": "30s",
+      "schemaVersion": 39,
+      "tags": ["chatapp", "application"],
+      "time": { "from": "now-30m", "to": "now" },
+      "timepicker": {},
+      "title": "ChatApp / Application Overview",
+      "uid": "chatapp-app-overview",
+      "version": 1
+    }
