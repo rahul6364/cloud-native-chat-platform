@@ -3,7 +3,7 @@
 frontend:
   image:
     repository: rahul6364/full-stack-chatapp-frontend
-    tag: 3fd78d9
+    tag: 2963d72
     pullPolicy: IfNotPresent
   replicas: 1
   resources:
@@ -16,7 +16,7 @@ frontend:
 backend:
   image:
     repository: rahul6364/full-stack-chatapp-backend
-    tag: 3fd78d9
+    tag: 2963d72
     pullPolicy: Always
   replicas: 1
   resources:
@@ -32,7 +32,7 @@ pdb:
   enabled: false
 mongodb:
   image:
-    tag: "7.0"
+    tag: 2963d72
   replicas: 1
   resources:
     requests:
