@@ -2,6 +2,10 @@
 namespace: chat-app
 networkPolicy:
   enabled: false
+  # Optional extra ingress source for AWS ALB with target-type ip (traffic comes
+  # from VPC IPs, not from ingress-controller pods). Empty string disables the
+  # extra ipBlock rule so the Kind/ingress-nginx render is unchanged.
+  albCidr: ""
   monitoringNamespace: monitoring
 metrics:
   serviceMonitor:
@@ -55,7 +59,14 @@ backend:
   image:
     repository: rahul6364/full-stack-chatapp-backend
     tag: 9d557ab
-    pullPolicy: Always
+    # Tags are immutable commit SHAs, so IfNotPresent is safe and avoids
+    # re-pulling (and Docker Hub rate limits) on every pod start.
+    pullPolicy: IfNotPresent
+  # Graceful shutdown: pod gets a preStop sleep so the load balancer stops
+  # sending new connections, then a generous termination window for
+  # server.close()/io.close() to drain.
+  terminationGracePeriodSeconds: 45
+  preStopSleepSeconds: 5
   service:
     type: ClusterIP
     port: 5001
