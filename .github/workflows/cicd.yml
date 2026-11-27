@@ -218,6 +218,7 @@ jobs:
           sarif_file: trivy-frontend.sarif
           category: trivy-frontend
 
+  # TODO: Remove Docker Hub push and Kind Helm update jobs after EKS cutover.
   docker_push:
     name: Docker Push
     runs-on: ubuntu-latest
@@ -287,7 +288,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: us-east-2
+          aws-region: ${{ vars.AWS_REGION || 'ap-south-1' }}
 
       - name: Login to Amazon ECR
         id: login-ecr
@@ -335,8 +336,19 @@ jobs:
             exit 1
           fi
 
-          sed -i "/^frontend:/,/^backend:/ s/^    tag:.*/    tag: ${SHORT_SHA}/" "$FILE"
-          sed -i "/^backend:/,$ s/^    tag:.*/    tag: ${SHORT_SHA}/" "$FILE"
+          python3 - "$FILE" "$SHORT_SHA" <<'PY'
+          import os, re, sys
+          path, sha = sys.argv[1], sys.argv[2]
+          text = open(path).read()
+          for section in ("frontend", "backend"):
+              pat = re.compile(
+                  rf"(^{section}:[ \t]*\n(?:[ \t]+.*\n|\n)*?^[ \t]{{4}}tag:[ \t]*)\S+",
+                  re.MULTILINE,
+              )
+              text, n = pat.subn(rf"\g<1>{sha}", text, count=1)
+              assert n == 1, f"Failed to update {section}.image.tag in {path}"
+          open(path, "w").write(text)
+          PY
 
           echo "Updated image tags in $FILE"
 
@@ -392,8 +404,19 @@ jobs:
             exit 1
           fi
 
-          sed -i "/^frontend:/,/^backend:/ s/^    tag:.*/    tag: ${SHORT_SHA}/" "$FILE"
-          sed -i "/^backend:/,$ s/^    tag:.*/    tag: ${SHORT_SHA}/" "$FILE"
+          python3 - "$FILE" "$SHORT_SHA" <<'PY'
+          import os, re, sys
+          path, sha = sys.argv[1], sys.argv[2]
+          text = open(path).read()
+          for section in ("frontend", "backend"):
+              pat = re.compile(
+                  rf"(^{section}:[ \t]*\n(?:[ \t]+.*\n|\n)*?^[ \t]{{4}}tag:[ \t]*)\S+",
+                  re.MULTILINE,
+              )
+              text, n = pat.subn(rf"\g<1>{sha}", text, count=1)
+              assert n == 1, f"Failed to update {section}.image.tag in {path}"
+          open(path, "w").write(text)
+          PY
 
       - name: Commit changes
         run: |
