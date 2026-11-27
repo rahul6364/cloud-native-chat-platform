@@ -16,6 +16,13 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: {{ .Values.networkPolicy.ingressControllerNamespace }}
+{{- if .Values.networkPolicy.albCidr }}
+        # AWS ALB with target-type ip sends traffic from VPC IPs, not from the
+        # ingress-controller pods, so the namespaceSelector rule alone would
+        # block it. Allow the VPC CIDR explicitly (must match the Terraform VPC).
+        - ipBlock:
+            cidr: {{ .Values.networkPolicy.albCidr | quote }}
+{{- end }}
       ports:
         - protocol: TCP
           port: {{ .Values.frontend.service.targetPort }}
@@ -53,6 +60,15 @@ spec:
       ports:
         - protocol: TCP
           port: {{ .Values.backend.service.targetPort }}
+{{- if .Values.networkPolicy.albCidr }}
+    - from:
+        # ALB with target-type ip: traffic originates from VPC IPs (see note above).
+        - ipBlock:
+            cidr: {{ .Values.networkPolicy.albCidr | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.backend.service.targetPort }}
+{{- end }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

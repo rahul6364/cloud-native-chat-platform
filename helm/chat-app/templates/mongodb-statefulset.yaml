@@ -63,3 +63,8 @@ spec:
         resources:
           requests:
             storage: {{ .Values.mongodb.persistence.size }}
+{{- with .Values.mongodb.persistence.storageClassName }}
+        # Rendered only when explicitly set; empty value falls back to the
+        # cluster default StorageClass (local-path on Kind, gp3 manifest on EKS).
+        storageClassName: {{ . | quote }}
+{{- end }}
