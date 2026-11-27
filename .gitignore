@@ -32,3 +32,9 @@ deploy/secrets/pub-cert.pem
 
 # Local deployment secrets and certificates
 ec2-sealed-secrets.pem
+*.pem
+
+# Terraform
+*.tfstate
+.terraform/
+*.tfvars
