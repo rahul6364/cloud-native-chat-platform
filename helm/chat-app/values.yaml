@@ -117,7 +117,7 @@ mongodb:
   replicas: 1
   image:
     repository: mongo
-    tag: '8.0'
+    tag: '7.0'
     pullPolicy: IfNotPresent
   service:
     port: 27017
@@ -153,7 +153,7 @@ mongodb:
       memory: 256Mi
       cpu: 250m
   pdb:
-    enabled: true
+    enabled: false
     maxUnavailable: 0
 configmap:
   nginxConf: "server {\n    listen 80;\n    server_name localhost;\n\n    root /usr/share/nginx/html;\n\
