@@ -127,7 +127,7 @@ This project provides a scalable, production-style chat application with:
 | **Loki + Grafana Alloy** | Centralized application logs collected and visible in Grafana Explore |
 | **Observability stack** | End-to-end metrics + logs pipeline verified |
 | **CI/CD** | GitHub Actions builds, scans (Trivy), pushes images, and updates Helm image tags |
-| **Socket.io multi-replica** | Ingress cookie affinity + backend session affinity for sticky Socket.io sessions |
+| **Socket.io multi-replica** | `@socket.io/redis-adapter` backed by Redis shares state across replicas with `websocket`-only transport (no sticky sessions required) |
 | **Payload support** | 10 MB request limits (Express + Nginx Ingress) for profile picture uploads |
 
 ---
@@ -213,7 +213,7 @@ graph LR
 | **Backend Deployment** | REST API, Socket.io server, JWT auth, Prometheus `/metrics` endpoint |
 | **MongoDB StatefulSet** | Persistent chat data with stable network identity and a PVC |
 | **Kind** | Single-node Kubernetes cluster running inside Docker on the EC2 host |
-| **Ingress NGINX** | Host-based routing on nip.io hostnames, WebSocket support, cookie affinity for Socket.io |
+| **Ingress NGINX** | Host-based routing on nip.io hostnames and WebSocket upgrade support |
 | **ArgoCD** | Watches the Git branch; auto-syncs the Helm chart and observability stacks |
 | **Prometheus** | Scrapes Kubernetes and custom application metrics |
 | **Grafana** | Visualization — dashboards, Explore, alerting |
@@ -240,17 +240,18 @@ GitHub Actions CI
         │
         ▼
 Helm Values Update
-  └── helm/chat-app/values-ec2.yaml image tags bumped to new SHA
+  ├── restore-kind-gitops → bumps helm/chat-app/values-ec2.yaml image tags
+  └── main                → bumps helm/chat-app/values-eks.yaml image tags (after ECR push)
         │
         ▼
-Git commit + push to main  [skip ci]
+Git commit + push to deployed branch  [skip ci]
         │
         ▼
-ArgoCD detects diff
-  ├── chat-app      → syncs Helm chart
-  ├── monitoring-stack → Prometheus + Grafana
-  ├── loki          → Loki (log storage, single binary)
-  └── alloy         → Grafana Alloy (log collector DaemonSet)
+ArgoCD detects diff (health check: /healthz)
+  ├── chatapp           → syncs Helm chart (manifest: deploy/argocd/chat-app.yaml)
+  ├── monitoring-stack  → Prometheus + Grafana
+  ├── loki              → Loki (log storage, single binary)
+  └── alloy             → Grafana Alloy (log collector DaemonSet)
         │
         ▼
 Kubernetes Rollout
@@ -263,7 +264,7 @@ ArgoCD applications:
 
 | App | Manifest | Deploys |
 |-----|----------|---------|
-| `chat-app` | `deploy/argocd/chat-app.yaml` | Application Helm chart |
+| `chatapp` | `deploy/argocd/chat-app.yaml` | Application Helm chart (ArgoCD health check: `/healthz`) |
 | `monitoring-stack` | `deploy/argocd/monitoring.yaml` | Prometheus + Grafana |
 | `loki` | `deploy/argocd/loki.yaml` | Loki (single binary, log storage) |
 | `alloy` | `deploy/argocd/alloy.yaml` | Grafana Alloy (log collector DaemonSet) |
@@ -290,8 +291,8 @@ graph LR
 ```
 
 The pipeline builds and scans images on every push to the deployed branch (code changes only —
-`deploy/**` and `helm/**` changes skip the build). Deployments are **GitOps**: updating the image
-`tag` in `helm/chat-app/values-ec2.yaml` and pushing is what triggers ArgoCD to roll out the new
+`deploy/**` and `helm/**` changes skip the build). Deployments are **GitOps**: CI bumps the backend and frontend image
+`tag` in `helm/chat-app/values-ec2.yaml` on `restore-kind-gitops` (and `helm/chat-app/values-eks.yaml` on `main`), which triggers ArgoCD to roll out the new
 version; the workflow itself never touches the cluster.
 
 ---
@@ -665,15 +666,11 @@ The modern way. ArgoCD will monitor your repository and automatically sync chang
 | `unable to resolve 'helm-migration' to a commit SHA` | Branch was never pushed; use `targetRevision: main` in `deploy/argocd/chat-app.yaml` and re-apply. |
 | `repository not accessible` | Add GitHub PAT in ArgoCD if the repo is private. |
 | SealedSecret sync failed | Re-seal secrets for your cluster (see [Re-sealing Secrets](#-re-sealing-secrets-for-a-new-cluster)). |
-| Socket.io `400 Bad Request` / WebSocket closed | Backend runs multiple replicas; Socket.io sessions are per-pod. Ensure ingress has **cookie affinity** (`nginx.ingress.kubernetes.io/affinity: cookie` in `helm/chat-app/values.yaml`) and sync the app. |
+| Socket.io `400 Bad Request` / WebSocket closed | Ensure `transports: ["websocket"]` is enabled, Redis (`redis:6379`) is healthy, and ingress WebSocket upgrade headers are intact. |
 
 ### Socket.io with multiple backend replicas
 
-Socket.io keeps connection state in **process memory**. With HPA (2+ backend pods), polling/WebSocket follow-ups can hit a different pod than the handshake and return `400`.
-
-The Helm chart configures **sticky sessions** on the ingress (cookie affinity) and on the `backend` Service (`sessionAffinity: ClientIP`). After changing values, sync ArgoCD or run `helm upgrade` and hard-refresh the browser.
-
-For production at scale, consider a shared adapter (e.g. `@socket.io/redis-adapter` with Redis) so replicas can share socket state without stickiness.
+Socket.IO uses `@socket.io/redis-adapter` (connected to the in-cluster Redis instance) so backend replicas share room and socket state, and uses `websocket`-only transport (`transports: ["websocket"]`). Because state is shared in Redis and there is no HTTP long-polling handshake across pods, sticky sessions (ingress cookie affinity / `sessionAffinity: ClientIP`) are not needed and are not configured.
 
 ### Routine updates
 
@@ -1114,8 +1111,8 @@ Kind usually means the backing path disappeared after an EC2 restart with cluste
 
 ### 5) Socket.io 400 / WebSocket closed with multiple backend replicas
 
-* **Problem:** Socket.io session created on one pod; follow-up requests routed to a different pod.
-* **Fix:** added ingress cookie affinity and backend Service `sessionAffinity: ClientIP` in the Helm chart.
+* **Problem:** Socket.io session state was isolated per pod during multi-replica scaling.
+* **Fix:** configured `@socket.io/redis-adapter` backed by Redis and `websocket`-only transport so replicas share state without needing sticky sessions.
 
 ### 6) Prometheus showed no custom application metrics
 
