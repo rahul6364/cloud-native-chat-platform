@@ -15,10 +15,17 @@ spec:
       labels:
         app: backend
     spec:
+      terminationGracePeriodSeconds: {{ .Values.backend.terminationGracePeriodSeconds | default 45 }}
       containers:
         - name: backend
           image: {{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}
           imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - sleep
+                  - {{ .Values.backend.preStopSleepSeconds | default 5 | quote }}
           ports:
             - containerPort: {{ .Values.backend.service.targetPort }}
           readinessProbe:
@@ -47,6 +54,14 @@ spec:
               value: {{ .Values.backend.env.nodeEnv | quote }}
             - name: REDIS_URL
               value: {{ .Values.backend.env.redisUrl | default "redis://redis:6379" | quote }}
+            {{- if .Values.backend.env.cookieSecure }}
+            - name: COOKIE_SECURE
+              value: {{ .Values.backend.env.cookieSecure | quote }}
+            {{- end }}
+            {{- if .Values.backend.env.allowedOrigins }}
+            - name: ALLOWED_ORIGINS
+              value: {{ .Values.backend.env.allowedOrigins | quote }}
+            {{- end }}
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:

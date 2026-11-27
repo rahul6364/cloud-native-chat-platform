@@ -75,6 +75,8 @@ backend:
   env:
     port: '5001'
     nodeEnv: production
+    cookieSecure: ""
+    allowedOrigins: ""
   secretRef:
     name: backend-secrets
     keys:
