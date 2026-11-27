@@ -15,6 +15,7 @@ import { metricsMiddleware } from "./middleware/metrics.middleware.js";
 import { updateRegisteredUsers } from "./lib/metrics.js";
 import User from "./models/user.model.js";
 import { app, server, io, pubClient, subClient } from "./lib/socket.js";
+import { allowedOrigins } from "./lib/origins.js";
 
 // Load environment variables from .env file
 
@@ -26,7 +27,7 @@ app.use(express.json({ limit: "10mb" }));
 app.use(cookieParser());
 app.use(
   cors({
-    origin: ["http://chat-app.com:8080", "http://chat-app.com", "http://localhost:8080", "http://localhost:5173"],
+    origin: allowedOrigins,
     credentials: true,
   })
 );

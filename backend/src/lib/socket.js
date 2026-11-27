@@ -5,6 +5,7 @@ import express from "express";
 import { createAdapter } from "@socket.io/redis-adapter";
 import Redis from "ioredis";
 import { updateSocketMetrics } from "./metrics.js";
+import { allowedOrigins } from "./origins.js";
 
 const app = express();
 const server = http.createServer(app);
@@ -39,12 +40,7 @@ await Promise.all([pubClient.connect(), subClient.connect()]);
 
 const io = new Server(server, {
   cors: {
-    origin: [
-      "http://localhost:5173",
-      "http://chat-app.com:8080",
-      "http://chat-app.com",
-      "http://localhost:8080",
-    ],
+    origin: allowedOrigins,
     credentials: true,
   },
   pingInterval: 25000,
