@@ -34,7 +34,7 @@ EXPOSE 5001
 USER appuser
 
 # Start the server
-CMD ["npm", "start"]
+CMD ["node","src/index.js"]
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
