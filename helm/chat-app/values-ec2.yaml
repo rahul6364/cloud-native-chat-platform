@@ -21,7 +21,7 @@ backend:
   replicas: 1
   resources:
     requests:
-      cpu: 100m
+      cpu: 30m
     limits:
       cpu: 300m
   autoscaling:
