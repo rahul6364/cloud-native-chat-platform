@@ -3,7 +3,7 @@
 frontend:
   image:
     repository: rahul6364/full-stack-chatapp-frontend
-    tag: 2963d72
+    tag: 8af2078
     pullPolicy: IfNotPresent
   replicas: 1
   resources:
@@ -16,7 +16,7 @@ frontend:
 backend:
   image:
     repository: rahul6364/full-stack-chatapp-backend
-    tag: 2963d72
+    tag: 8af2078
     pullPolicy: Always
   replicas: 1
   resources:
